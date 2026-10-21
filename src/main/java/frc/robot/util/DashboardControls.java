@@ -4,7 +4,6 @@ import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
 import frc.robot.subsystems.Hood.HoodConstants;
-import java.util.Map;
 import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
 
@@ -27,7 +26,9 @@ import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
  * value (so dashboard edits are never overwritten), and every value read is logged for replay.
  * Changed values are also persisted ({@link DashboardSettingsFile}) and restored on the next boot,
  * so settings survive a power cycle; the defaults below only apply until the first save, and to
- * keys with no saved value.
+ * keys with no saved value. Non-numeric Elastic settings (e.g. the LED pattern chooser) persist
+ * through the same file via {@link #getSavedString} and {@link #persistStringIfChanged(String,
+ * String)}.
  */
 public final class DashboardControls {
   public static final double DEFAULT_SPEED_PERCENT = 100.0;
@@ -64,12 +65,20 @@ public final class DashboardControls {
     if (Logger.hasReplaySource()) {
       return;
     }
-    Map<String, Double> saved = settingsFile().load();
-    drivePercent.set(sanitizeSaved(saved, DRIVE_KEY, DEFAULT_SPEED_PERCENT));
-    turnPercent.set(sanitizeSaved(saved, TURN_KEY, DEFAULT_SPEED_PERCENT));
-    flywheelPercent.set(sanitizeSaved(saved, FLYWHEEL_KEY, DEFAULT_SPEED_PERCENT));
-    hoodPercent.set(sanitizeSaved(saved, HOOD_KEY, DEFAULT_HOOD_PERCENT));
-    ledBrightnessPercent.set(sanitizeSaved(saved, LED_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS_PERCENT));
+    DashboardSettingsFile saved = settingsFile();
+    drivePercent.set(
+        sanitizePercent(saved.getDouble(DRIVE_KEY, DEFAULT_SPEED_PERCENT), DEFAULT_SPEED_PERCENT));
+    turnPercent.set(
+        sanitizePercent(saved.getDouble(TURN_KEY, DEFAULT_SPEED_PERCENT), DEFAULT_SPEED_PERCENT));
+    flywheelPercent.set(
+        sanitizePercent(
+            saved.getDouble(FLYWHEEL_KEY, DEFAULT_SPEED_PERCENT), DEFAULT_SPEED_PERCENT));
+    hoodPercent.set(
+        sanitizePercent(saved.getDouble(HOOD_KEY, DEFAULT_HOOD_PERCENT), DEFAULT_HOOD_PERCENT));
+    ledBrightnessPercent.set(
+        sanitizePercent(
+            saved.getDouble(LED_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS_PERCENT),
+            DEFAULT_BRIGHTNESS_PERCENT));
   }
 
   /**
@@ -97,9 +106,23 @@ public final class DashboardControls {
     return settingsFile;
   }
 
-  /** A saved value sanitized back into range; missing keys fall back to the code default. */
-  private static double sanitizeSaved(Map<String, Double> saved, String key, double fallback) {
-    return sanitizePercent(saved.getOrDefault(key, fallback), fallback);
+  /**
+   * Reads a saved non-numeric setting (e.g. the LED pattern name). Falls back when nothing valid is
+   * saved; no-op in replay.
+   */
+  public static String getSavedString(String key, String fallback) {
+    if (Logger.hasReplaySource()) {
+      return fallback;
+    }
+    return settingsFile().getString(key, fallback);
+  }
+
+  /** Persists a changed non-numeric setting; call every loop (cheap no-op when unchanged). */
+  public static void persistStringIfChanged(String key, String value) {
+    if (Logger.hasReplaySource()) {
+      return;
+    }
+    settingsFile().updateString(key, value);
   }
 
   /** Swaps the persistence backend for tests; pass null to restore the default. */

@@ -111,4 +111,21 @@ class DashboardControlsPersistenceTest {
     // The other controls were still at defaults when the save happened.
     assertEquals(1.0, DashboardControls.getDriveScale(), EPS);
   }
+
+  @Test
+  void stringSettingsRoundTripLikeNumbers() {
+    DashboardSettingsFile store = new DashboardSettingsFile(tempDir.resolve("settings.txt"));
+    DashboardControls.setSettingsFileForTest(store);
+    assertEquals("Rainbow", DashboardControls.getSavedString("/LED Pattern", "Rainbow"));
+
+    DashboardControls.persistStringIfChanged("/LED Pattern", "Chase");
+    store.saveNow();
+
+    // "Reboot": fresh store over the same file.
+    DashboardControls.setSettingsFileForTest(
+        new DashboardSettingsFile(tempDir.resolve("settings.txt")));
+    assertEquals("Chase", DashboardControls.getSavedString("/LED Pattern", "Rainbow"));
+    // Unchanged string updates are free (no pending write churn).
+    DashboardControls.persistStringIfChanged("/LED Pattern", "Chase");
+  }
 }
