@@ -17,16 +17,19 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Persists the Elastic dashboard percentages across robot reboots and power cycles, so an
- * operator-set value (e.g. 20% drive speed) is still 20% the next time the robot is turned on.
+ * Persists the Elastic dashboard settings (numeric percentages and string selections such as the
+ * LED pattern) across robot reboots and power cycles, so an operator-set value (e.g. 20% drive
+ * speed) is still 20% the next time the robot is turned on.
  *
- * <p>Values are stored in a plain-text {@code key=value} file (one full NT key per line). Writes
- * are debounced and run on a background daemon thread so the real-time loop never touches disk, and
- * use a write-to-temp-then-rename so a power loss mid-save cannot corrupt the previous file.
+ * <p>Values are stored in a plain-text {@code key=value} file (one full NT key per line, value as
+ * its string form). Writes are debounced and run on a background daemon thread so the real-time
+ * loop never touches disk, and use a write-to-temp-then-rename so a power loss mid-save cannot
+ * corrupt the previous file.
  *
  * <p>The file is treated as untrusted input: a missing file, an oversized file, or any unreadable
  * line is skipped with a console warning and falls back to the code default for that key — never an
- * exception. Values are re-sanitized by the caller after loading.
+ * exception. Values are re-sanitized by the caller after loading; numeric reads additionally fall
+ * back when the stored value is not a finite number.
  *
  * <p>Location: roboRIO {@code /home/lvuser/dashboard-settings.txt} (survives reboots, redeploys and
  * power cycles; only a re-image wipes it), simulation {@code build/dashboard-settings.txt}.
@@ -43,8 +46,9 @@ final class DashboardSettingsFile {
             thread.setDaemon(true);
             return thread;
           });
-  private final Map<String, Double> persisted = new LinkedHashMap<>();
-  private final Map<String, Double> pending = new LinkedHashMap<>();
+  private final Map<String, String> persisted = new LinkedHashMap<>();
+  private final Map<String, String> pending = new LinkedHashMap<>();
+  private boolean loaded;
   private ScheduledFuture<?> pendingSave;
 
   /** Creates a store backed by an explicit file (used by tests). */
@@ -60,10 +64,48 @@ final class DashboardSettingsFile {
             : Path.of("build", "dashboard-settings.txt"));
   }
 
-  /** Returns the saved values keyed by full NT key; empty if nothing was saved yet. */
-  synchronized Map<String, Double> load() {
-    persisted.putAll(readFile());
-    return new LinkedHashMap<>(persisted);
+  /** Reads the file once; later calls are no-ops. */
+  private synchronized void ensureLoaded() {
+    if (!loaded) {
+      persisted.putAll(readFile());
+      loaded = true;
+    }
+  }
+
+  /**
+   * Returns the saved value of a numeric key, or {@code fallback} when the key is absent or its
+   * stored form is not a finite number.
+   */
+  double getDouble(String key, double fallback) {
+    String raw = getString(key, null);
+    if (raw == null) {
+      return fallback;
+    }
+    try {
+      double value = Double.parseDouble(raw.trim());
+      if (!Double.isFinite(value)) {
+        throw new NumberFormatException("not finite");
+      }
+      return value;
+    } catch (NumberFormatException e) {
+      System.err.println(
+          "[DashboardSettingsFile] Value of " + key + " is not a usable number: " + raw);
+      return fallback;
+    }
+  }
+
+  /** Returns the saved value of a string key, or {@code fallback} when the key is absent. */
+  String getString(String key, String fallback) {
+    ensureLoaded();
+    synchronized (this) {
+      String value = pending.containsKey(key) ? pending.get(key) : persisted.get(key);
+      return value != null ? value : fallback;
+    }
+  }
+
+  /** Records the latest numeric value of a key; see {@link #updateString(String, String)}. */
+  void update(String key, double value) {
+    updateString(key, Double.toString(value));
   }
 
   /**
@@ -73,12 +115,14 @@ final class DashboardSettingsFile {
    * every loop: a value that merely differs from disk (e.g. before the first save) must not keep
    * pushing the timer out, or the save would never fire.
    */
-  synchronized void update(String key, double value) {
-    Double latest = pending.containsKey(key) ? pending.get(key) : persisted.get(key);
-    if (latest != null && latest == value) {
+  synchronized void updateString(String key, String value) {
+    // The file format is one line per entry; newlines would corrupt it.
+    String sanitized = value.replace('\n', ' ').replace('\r', ' ').trim();
+    String latest = pending.containsKey(key) ? pending.get(key) : persisted.get(key);
+    if (sanitized.equals(latest)) {
       return;
     }
-    pending.put(key, value);
+    pending.put(key, sanitized);
     if (pendingSave != null) {
       pendingSave.cancel(false);
     }
@@ -105,11 +149,12 @@ final class DashboardSettingsFile {
     if (pending.isEmpty()) {
       return;
     }
-    Map<String, Double> toWrite = new LinkedHashMap<>(persisted);
+    Map<String, String> toWrite = new LinkedHashMap<>(persisted);
     toWrite.putAll(pending);
     try {
       writeFile(toWrite);
       persisted.putAll(toWrite);
+      loaded = true;
       // Keep only values that changed again while the write was in flight.
       pending.entrySet().removeIf(e -> toWrite.get(e.getKey()).equals(e.getValue()));
     } catch (IOException e) {
@@ -118,7 +163,7 @@ final class DashboardSettingsFile {
     }
   }
 
-  private void writeFile(Map<String, Double> values) throws IOException {
+  private void writeFile(Map<String, String> values) throws IOException {
     Path parent = file.getParent();
     if (parent != null) {
       Files.createDirectories(parent);
@@ -126,7 +171,7 @@ final class DashboardSettingsFile {
     List<String> lines = new ArrayList<>();
     lines.add("# Elastic dashboard settings, auto-saved by the robot program.");
     lines.add("# One <NT key>=<value> per line. Edit only while the robot program is off.");
-    for (Map.Entry<String, Double> entry : values.entrySet()) {
+    for (Map.Entry<String, String> entry : values.entrySet()) {
       lines.add(entry.getKey() + "=" + entry.getValue());
     }
     Path temp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -138,8 +183,8 @@ final class DashboardSettingsFile {
     }
   }
 
-  private Map<String, Double> readFile() {
-    Map<String, Double> result = new LinkedHashMap<>();
+  private Map<String, String> readFile() {
+    Map<String, String> result = new LinkedHashMap<>();
     if (!Files.isRegularFile(file)) {
       return result;
     }
@@ -160,17 +205,7 @@ final class DashboardSettingsFile {
           continue;
         }
         String key = line.substring(0, separator).trim();
-        double value;
-        try {
-          value = Double.parseDouble(line.substring(separator + 1).trim());
-        } catch (NumberFormatException e) {
-          System.err.println("[DashboardSettingsFile] Skipping unparsable line: " + line);
-          continue;
-        }
-        if (!Double.isFinite(value)) {
-          System.err.println("[DashboardSettingsFile] Skipping non-finite line: " + line);
-          continue;
-        }
+        String value = line.substring(separator + 1).trim();
         result.put(key, value);
       }
     } catch (IOException e) {

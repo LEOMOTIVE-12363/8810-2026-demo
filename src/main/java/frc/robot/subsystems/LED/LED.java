@@ -1,5 +1,6 @@
 package frc.robot.subsystems.LED;
 
+import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.AddressableLEDBuffer;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
@@ -10,12 +11,15 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
  * Addressable LED strip. The active effect comes from the Elastic "LED Pattern" chooser and global
- * brightness from the "/Tuning/LED Brightness (%)" slider (default 100%, power-cycle persistent
- * like the other Elastic settings). Robot-state-driven effects (alliance color, game piece, …) will
- * layer on top of this chooser later.
+ * brightness from the "/Tuning/LED Brightness (%)" slider (default 100%) — both power-cycle
+ * persistent like the other Elastic settings. Robot-state-driven effects (alliance color, game
+ * piece, …) will layer on top of this chooser later.
  */
 public class LED extends SubsystemBase {
   public static final LED mInstance = new LED();
+
+  /** Settings-store key of the chooser; its NT entry is "/SmartDashboard/LED Pattern". */
+  public static final String PATTERN_SETTING_KEY = "/SmartDashboard/LED Pattern";
 
   private static final int MAX_VALUE = 255;
 
@@ -38,6 +42,33 @@ public class LED extends SubsystemBase {
         patternChooser.addOption(pattern.getDashboardName(), pattern);
       }
     }
+
+    restoreSavedPattern();
+  }
+
+  /**
+   * Re-selects the pattern saved by the previous run, exactly as if the operator had picked it on
+   * the dashboard (writes the chooser's "selected" NT entry, which Elastic drives the same way). An
+   * unknown saved name (e.g. left over from an older build) is ignored, keeping the Rainbow
+   * default.
+   */
+  private void restoreSavedPattern() {
+    if (Constants.currentMode == Constants.Mode.REPLAY) {
+      return;
+    }
+    String saved = DashboardControls.getSavedString(PATTERN_SETTING_KEY, null);
+    if (saved == null) {
+      return;
+    }
+    for (LEDPattern pattern : LEDPattern.values()) {
+      if (pattern.getDashboardName().equals(saved)) {
+        NetworkTableInstance.getDefault()
+            .getEntry(PATTERN_SETTING_KEY + "/selected")
+            .setString(saved);
+        return;
+      }
+    }
+    System.err.println("[LED] Unknown saved pattern \"" + saved + "\"; keeping the default");
   }
 
   @Override
@@ -46,6 +77,7 @@ public class LED extends SubsystemBase {
     if (pattern == null) {
       pattern = LEDPattern.OFF;
     }
+    DashboardControls.persistStringIfChanged(PATTERN_SETTING_KEY, pattern.getDashboardName());
     double scale = DashboardControls.getLedBrightnessPercent() / 100.0 * MAX_VALUE;
     double time = Timer.getFPGATimestamp();
     int length = buffer.getLength();
