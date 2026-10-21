@@ -54,6 +54,11 @@ CI (GitHub Actions) runs `./gradlew build` on every push; unformatted code fails
 - Runtime mode switches on `Constants.currentMode` (REAL / SIM / REPLAY); each subsystem picks its IO implementation accordingly.
 - `elastic-layout.json` — Elastic dashboard layout, kept in sync with the NetworkTables interfaces in code.
 
+## Development workflow & decision records
+
+- **Commit convention**: [Conventional Commits](https://www.conventionalcommits.org/) — `feat:` / `fix:` / `docs:` / `chore:`, with an optional scope (e.g. `feat(drive): ...`).
+- **Decision records**: the reasoning behind major changes (why demo is teleop-only, why the MIT LICENSE also lives on `main`, ...) is in [`docs/decisions/`](docs/decisions/) — one short file per decision (date + status + context + decision).
+
 ## Acknowledgements & references
 
 - [WPILib](https://docs.wpilib.org) — FIRST robotics software framework

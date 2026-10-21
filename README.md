@@ -54,6 +54,11 @@ CI（GitHub Actions）在每次推送运行 `./gradlew build`，格式未过即�
 - 三种运行模式由 `Constants.currentMode`（REAL / SIM / REPLAY）切换，各子系统按模式选择 IO 实现。
 - `elastic-layout.json` — Elastic 仪表盘布局，与代码内 NetworkTables 接口同步维护。
 
+## 开发流程与决策记录
+
+- **提交约定**：遵循 [Conventional Commits](https://www.conventionalcommits.org/)——`feat:` / `fix:` / `docs:` / `chore:`，可带 scope（如 `feat(drive): ...`）。
+- **决策记录**：重大改动的原因（为何 demo 只保留手动、为何 LICENSE 常驻 main 等）见 [`docs/decisions/`](docs/decisions/)——每个决策一个短文件（日期 + 状态 + 背景 + 决定）。
+
 ## 致谢与参考
 
 - [WPILib](https://docs.wpilib.org) — FIRST 机器人软件框架
