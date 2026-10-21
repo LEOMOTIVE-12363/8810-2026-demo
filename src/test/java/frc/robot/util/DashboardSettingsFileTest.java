@@ -67,6 +67,22 @@ class DashboardSettingsFileTest {
   }
 
   @Test
+  void repeatedUnchangedUpdatesStillSave() throws Exception {
+    DashboardSettingsFile store = new DashboardSettingsFile(settingsPath());
+
+    // The robot loop polls every cycle with the same value. The save must still fire once and
+    // stop: comparing against the on-disk state instead of the latest seen value used to defer
+    // the timer on every poll, so nothing was ever written.
+    long deadline = System.currentTimeMillis() + 5000;
+    while (!Files.exists(settingsPath()) && System.currentTimeMillis() < deadline) {
+      store.update(DRIVE_KEY, 30.0);
+      Thread.sleep(20); // faster than the save delay, like the 50 Hz robot loop
+    }
+    assertTrue(Files.exists(settingsPath()), "save should fire despite unchanged repeated polls");
+    assertEquals(30.0, new DashboardSettingsFile(settingsPath()).load().get(DRIVE_KEY));
+  }
+
+  @Test
   void corruptLinesAreSkippedNotFatal() throws IOException {
     Files.writeString(
         settingsPath(),

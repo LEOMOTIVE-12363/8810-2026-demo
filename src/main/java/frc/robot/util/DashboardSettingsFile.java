@@ -67,16 +67,15 @@ final class DashboardSettingsFile {
   }
 
   /**
-   * Records the latest value of a key. A save is scheduled a short delay after the last change (so
-   * a dragged Elastic slider produces one write, not hundreds); unchanged values are free.
+   * Records the latest value of a key. A save is scheduled a short delay after the value last
+   * changed (so a dragged Elastic slider produces one write, not hundreds). The comparison is
+   * against the latest value seen this session — not the on-disk state — because the caller polls
+   * every loop: a value that merely differs from disk (e.g. before the first save) must not keep
+   * pushing the timer out, or the save would never fire.
    */
   synchronized void update(String key, double value) {
-    if (value == persisted.getOrDefault(key, Double.NaN)) {
-      pending.remove(key);
-      if (pending.isEmpty() && pendingSave != null) {
-        pendingSave.cancel(false);
-        pendingSave = null;
-      }
+    Double latest = pending.containsKey(key) ? pending.get(key) : persisted.get(key);
+    if (latest != null && latest == value) {
       return;
     }
     pending.put(key, value);
