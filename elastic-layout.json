@@ -459,6 +459,36 @@
               "data_type": "double",
               "show_submit_button": false
             }
+          },
+          {
+            "title": "LED Pattern",
+            "x": 1024.0,
+            "y": 0.0,
+            "width": 256.0,
+            "height": 128.0,
+            "type": "ComboBox",
+            "properties": {
+              "topic": "/SmartDashboard/LED Pattern",
+              "period": 0.06,
+              "data_type": "string"
+            }
+          },
+          {
+            "title": "LED Brightness (%)",
+            "x": 1024.0,
+            "y": 128.0,
+            "width": 256.0,
+            "height": 128.0,
+            "type": "Number Slider",
+            "properties": {
+              "topic": "/Tuning/LED Brightness (%)",
+              "period": 0.06,
+              "data_type": "double",
+              "min_value": 0.0,
+              "max_value": 100.0,
+              "divisions": 20,
+              "publish_all": false
+            }
           }
         ]
       }

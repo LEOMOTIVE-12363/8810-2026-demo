@@ -9,7 +9,8 @@ import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
 
 /**
- * Operator controls set from Elastic as percentages (0-100) under /SmartDashboard.
+ * Operator controls set from Elastic as percentages (0-100) — the drive train and shot settings
+ * live under /SmartDashboard, the LED brightness under /Tuning.
  *
  * <p>Drive and Turn scale the chassis translational and rotational velocity independently inside
  * {@link frc.robot.subsystems.drive.Drive}. They are not applied during autonomous so auto paths
@@ -19,7 +20,8 @@ import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
  * the closed-loop velocity control is unchanged), and Hood Angle maps linearly onto the hood's
  * [{@link HoodConstants#MinAngleDeg}, {@link HoodConstants#MaxAngleDeg}] range. Together they are
  * the shot configuration used by {@link frc.robot.commands.ShootingCommand.Shooting}, in every
- * mode.
+ * mode. LED Brightness scales the value channel of every {@link frc.robot.subsystems.LED.LED}
+ * effect.
  *
  * <p>The entries are {@link LoggedNetworkNumber}s: the default is only set if the topic has no
  * value (so dashboard edits are never overwritten), and every value read is logged for replay.
@@ -30,11 +32,13 @@ import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
 public final class DashboardControls {
   public static final double DEFAULT_SPEED_PERCENT = 100.0;
   public static final double DEFAULT_HOOD_PERCENT = 0.0;
+  public static final double DEFAULT_BRIGHTNESS_PERCENT = 100.0;
 
   static final String DRIVE_KEY = "/SmartDashboard/Drive Speed Limit (%)";
   static final String TURN_KEY = "/SmartDashboard/Turn Speed Limit (%)";
   static final String FLYWHEEL_KEY = "/SmartDashboard/Flywheel Speed Limit (%)";
   static final String HOOD_KEY = "/SmartDashboard/Hood Angle (%)";
+  static final String LED_BRIGHTNESS_KEY = "/Tuning/LED Brightness (%)";
 
   private static final LoggedNetworkNumber drivePercent =
       new LoggedNetworkNumber(DRIVE_KEY, DEFAULT_SPEED_PERCENT);
@@ -44,6 +48,8 @@ public final class DashboardControls {
       new LoggedNetworkNumber(FLYWHEEL_KEY, DEFAULT_SPEED_PERCENT);
   private static final LoggedNetworkNumber hoodPercent =
       new LoggedNetworkNumber(HOOD_KEY, DEFAULT_HOOD_PERCENT);
+  private static final LoggedNetworkNumber ledBrightnessPercent =
+      new LoggedNetworkNumber(LED_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS_PERCENT);
 
   private static DashboardSettingsFile settingsFile;
 
@@ -63,6 +69,7 @@ public final class DashboardControls {
     turnPercent.set(sanitizeSaved(saved, TURN_KEY, DEFAULT_SPEED_PERCENT));
     flywheelPercent.set(sanitizeSaved(saved, FLYWHEEL_KEY, DEFAULT_SPEED_PERCENT));
     hoodPercent.set(sanitizeSaved(saved, HOOD_KEY, DEFAULT_HOOD_PERCENT));
+    ledBrightnessPercent.set(sanitizeSaved(saved, LED_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS_PERCENT));
   }
 
   /**
@@ -78,6 +85,9 @@ public final class DashboardControls {
     file.update(TURN_KEY, sanitizePercent(turnPercent.get(), DEFAULT_SPEED_PERCENT));
     file.update(FLYWHEEL_KEY, sanitizePercent(flywheelPercent.get(), DEFAULT_SPEED_PERCENT));
     file.update(HOOD_KEY, sanitizePercent(hoodPercent.get(), DEFAULT_HOOD_PERCENT));
+    file.update(
+        LED_BRIGHTNESS_KEY,
+        sanitizePercent(ledBrightnessPercent.get(), DEFAULT_BRIGHTNESS_PERCENT));
   }
 
   private static DashboardSettingsFile settingsFile() {
@@ -143,6 +153,11 @@ public final class DashboardControls {
   /** Scale (0-1) currently applied to the flywheel velocity setpoint. */
   public static double getFlywheelScale() {
     return percentToScale(flywheelPercent.get());
+  }
+
+  /** LED strip brightness percentage (0-100) currently applied by the LED subsystem. */
+  public static double getLedBrightnessPercent() {
+    return sanitizePercent(ledBrightnessPercent.get(), DEFAULT_BRIGHTNESS_PERCENT);
   }
 
   /** Hood target (mechanism degrees) from the Hood Angle (%) entry. */

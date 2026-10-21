@@ -15,7 +15,12 @@ public final class DashboardControlsTestUtil {
 
   /** Writes a value as Elastic would and makes it visible to the robot code. */
   public static void set(String label, double value) {
-    NetworkTableInstance.getDefault().getEntry("/SmartDashboard/" + label).setDouble(value);
+    setFullKey("/SmartDashboard/" + label, value);
+  }
+
+  /** Same as {@link #set(String, double)} for controls that do not live under /SmartDashboard. */
+  public static void setFullKey(String fullKey, double value) {
+    NetworkTableInstance.getDefault().getEntry(fullKey).setDouble(value);
     refresh();
   }
 
@@ -25,6 +30,7 @@ public final class DashboardControlsTestUtil {
     set(TURN, DashboardControls.DEFAULT_SPEED_PERCENT);
     set(FLYWHEEL, DashboardControls.DEFAULT_SPEED_PERCENT);
     set(HOOD, DashboardControls.DEFAULT_HOOD_PERCENT);
+    setFullKey(DashboardControls.LED_BRIGHTNESS_KEY, DashboardControls.DEFAULT_BRIGHTNESS_PERCENT);
   }
 
   /**
@@ -34,7 +40,9 @@ public final class DashboardControlsTestUtil {
   public static void refresh() {
     try {
       for (String name :
-          new String[] {"drivePercent", "turnPercent", "flywheelPercent", "hoodPercent"}) {
+          new String[] {
+            "drivePercent", "turnPercent", "flywheelPercent", "hoodPercent", "ledBrightnessPercent"
+          }) {
         Field field = DashboardControls.class.getDeclaredField(name);
         field.setAccessible(true);
         ((LoggedNetworkNumber) field.get(null)).periodic();

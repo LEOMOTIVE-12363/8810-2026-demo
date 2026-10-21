@@ -25,6 +25,7 @@ import frc.robot.subsystems.Hood.Hood;
 import frc.robot.subsystems.Indexer.Indexer;
 import frc.robot.subsystems.IntakeDeploy.IntakeDeploy;
 import frc.robot.subsystems.IntakeRoller.IntakeRoller;
+import frc.robot.subsystems.LED.LED;
 import frc.robot.subsystems.drive.Drive;
 import frc.robot.subsystems.drive.GyroIO;
 import frc.robot.subsystems.drive.GyroIOPigeon2;
@@ -58,6 +59,7 @@ public class RobotContainer {
   private final Indexer indexer = Indexer.mInstance;
   private final IntakeDeploy intakeDeploy = IntakeDeploy.mInstance;
   private final IntakeRoller intakeRoller = IntakeRoller.mInstance;
+  private final LED led = LED.mInstance;
   private final LoggedTunableNumber retract = new LoggedTunableNumber("retract", 25);
 
   // Controller

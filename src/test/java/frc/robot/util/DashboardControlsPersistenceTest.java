@@ -35,6 +35,7 @@ class DashboardControlsPersistenceTest {
     // "Elastic edits": dashboard writes, then the loop persists what changed.
     DashboardControlsTestUtil.set(DRIVE, 20.0);
     DashboardControlsTestUtil.set(HOOD, 25.0);
+    DashboardControlsTestUtil.setFullKey(DashboardControls.LED_BRIGHTNESS_KEY, 42.0);
     DashboardControls.persistIfChanged();
     store.saveNow();
 
@@ -49,6 +50,7 @@ class DashboardControlsPersistenceTest {
         HoodConstants.MinAngleDeg + 0.25 * (HoodConstants.MaxAngleDeg - HoodConstants.MinAngleDeg),
         DashboardControls.getHoodTargetDeg(),
         EPS);
+    assertEquals(42.0, DashboardControls.getLedBrightnessPercent(), EPS);
     // Keys the operator never moved come back at their defaults.
     assertEquals(1.0, DashboardControls.getTurnScale(), EPS);
     assertEquals(1.0, DashboardControls.getFlywheelScale(), EPS);
@@ -64,6 +66,7 @@ class DashboardControlsPersistenceTest {
     assertEquals(1.0, DashboardControls.getDriveScale(), EPS);
     assertEquals(1.0, DashboardControls.getTurnScale(), EPS);
     assertEquals(1.0, DashboardControls.getFlywheelScale(), EPS);
+    assertEquals(100.0, DashboardControls.getLedBrightnessPercent(), EPS);
     assertEquals(HoodConstants.MinAngleDeg, DashboardControls.getHoodTargetDeg(), EPS);
   }
 
