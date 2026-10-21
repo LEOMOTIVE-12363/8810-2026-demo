@@ -69,6 +69,10 @@ public class Robot extends LoggedRobot {
     // Start AdvantageKit logger
     Logger.start();
 
+    // Restore the Elastic dashboard settings saved by the previous run, so operator
+    // percentages survive reboots and power cycles.
+    DashboardControls.applySavedSettings();
+
     // Instantiate our RobotContainer. This will perform all our button bindings.
     robotContainer = new RobotContainer();
   }
@@ -107,6 +111,10 @@ public class Robot extends LoggedRobot {
 
     // Effective Elastic control values. Called every loop so the dashboard entries exist from boot.
     DashboardControls.logEffectiveValues();
+
+    // Save changed Elastic settings so they survive the next power cycle. Debounced and written
+    // on a background thread; a no-op when nothing changed.
+    DashboardControls.persistIfChanged();
 
     // Return to non-RT thread priority (do not modify the first argument)
     // Threads.setCurrentThreadPriority(false, 10);

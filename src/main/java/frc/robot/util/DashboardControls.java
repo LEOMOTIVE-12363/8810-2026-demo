@@ -4,6 +4,7 @@ import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
 import frc.robot.subsystems.Hood.HoodConstants;
+import java.util.Map;
 import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
 
@@ -22,21 +23,79 @@ import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
  *
  * <p>The entries are {@link LoggedNetworkNumber}s: the default is only set if the topic has no
  * value (so dashboard edits are never overwritten), and every value read is logged for replay.
+ * Changed values are also persisted ({@link DashboardSettingsFile}) and restored on the next boot,
+ * so settings survive a power cycle; the defaults below only apply until the first save, and to
+ * keys with no saved value.
  */
 public final class DashboardControls {
   public static final double DEFAULT_SPEED_PERCENT = 100.0;
-  public static final double DEFAULT_HOOD_PERCENT = 50.0;
+  public static final double DEFAULT_HOOD_PERCENT = 0.0;
+
+  static final String DRIVE_KEY = "/SmartDashboard/Drive Speed Limit (%)";
+  static final String TURN_KEY = "/SmartDashboard/Turn Speed Limit (%)";
+  static final String FLYWHEEL_KEY = "/SmartDashboard/Flywheel Speed Limit (%)";
+  static final String HOOD_KEY = "/SmartDashboard/Hood Angle (%)";
 
   private static final LoggedNetworkNumber drivePercent =
-      new LoggedNetworkNumber("/SmartDashboard/Drive Speed Limit (%)", DEFAULT_SPEED_PERCENT);
+      new LoggedNetworkNumber(DRIVE_KEY, DEFAULT_SPEED_PERCENT);
   private static final LoggedNetworkNumber turnPercent =
-      new LoggedNetworkNumber("/SmartDashboard/Turn Speed Limit (%)", DEFAULT_SPEED_PERCENT);
+      new LoggedNetworkNumber(TURN_KEY, DEFAULT_SPEED_PERCENT);
   private static final LoggedNetworkNumber flywheelPercent =
-      new LoggedNetworkNumber("/SmartDashboard/Flywheel Speed Limit (%)", DEFAULT_SPEED_PERCENT);
+      new LoggedNetworkNumber(FLYWHEEL_KEY, DEFAULT_SPEED_PERCENT);
   private static final LoggedNetworkNumber hoodPercent =
-      new LoggedNetworkNumber("/SmartDashboard/Hood Angle (%)", DEFAULT_HOOD_PERCENT);
+      new LoggedNetworkNumber(HOOD_KEY, DEFAULT_HOOD_PERCENT);
+
+  private static DashboardSettingsFile settingsFile;
 
   private DashboardControls() {}
+
+  /**
+   * Restores the values saved by the previous run, so Elastic settings survive a power cycle. Call
+   * once at startup, before the controls are first read; keys with no saved value (or an unusable
+   * saved file) keep their code defaults. Does nothing in replay, where values come from the log.
+   */
+  public static void applySavedSettings() {
+    if (Logger.hasReplaySource()) {
+      return;
+    }
+    Map<String, Double> saved = settingsFile().load();
+    drivePercent.set(sanitizeSaved(saved, DRIVE_KEY, DEFAULT_SPEED_PERCENT));
+    turnPercent.set(sanitizeSaved(saved, TURN_KEY, DEFAULT_SPEED_PERCENT));
+    flywheelPercent.set(sanitizeSaved(saved, FLYWHEEL_KEY, DEFAULT_SPEED_PERCENT));
+    hoodPercent.set(sanitizeSaved(saved, HOOD_KEY, DEFAULT_HOOD_PERCENT));
+  }
+
+  /**
+   * Persists changed control values (debounced, written off the real-time loop); call every loop.
+   * Values are stored sanitized (clamped), matching what the robot actually applies.
+   */
+  public static void persistIfChanged() {
+    if (Logger.hasReplaySource()) {
+      return;
+    }
+    DashboardSettingsFile file = settingsFile();
+    file.update(DRIVE_KEY, sanitizePercent(drivePercent.get(), DEFAULT_SPEED_PERCENT));
+    file.update(TURN_KEY, sanitizePercent(turnPercent.get(), DEFAULT_SPEED_PERCENT));
+    file.update(FLYWHEEL_KEY, sanitizePercent(flywheelPercent.get(), DEFAULT_SPEED_PERCENT));
+    file.update(HOOD_KEY, sanitizePercent(hoodPercent.get(), DEFAULT_HOOD_PERCENT));
+  }
+
+  private static DashboardSettingsFile settingsFile() {
+    if (settingsFile == null) {
+      settingsFile = DashboardSettingsFile.createDefault();
+    }
+    return settingsFile;
+  }
+
+  /** A saved value sanitized back into range; missing keys fall back to the code default. */
+  private static double sanitizeSaved(Map<String, Double> saved, String key, double fallback) {
+    return sanitizePercent(saved.getOrDefault(key, fallback), fallback);
+  }
+
+  /** Swaps the persistence backend for tests; pass null to restore the default. */
+  static void setSettingsFileForTest(DashboardSettingsFile file) {
+    settingsFile = file;
+  }
 
   /** Clamps a dashboard percentage to [0, 100]; NaN/inf fall back to defaultPercent. */
   static double sanitizePercent(double percent, double defaultPercent) {
