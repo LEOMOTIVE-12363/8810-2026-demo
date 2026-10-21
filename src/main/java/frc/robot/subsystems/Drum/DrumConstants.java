@@ -23,6 +23,10 @@ public final class DrumConstants {
 
   public static final double Drum_ROTOR_TO_MECHANISM_RATIO = 1.0;
   public static final double StowVelocity = 47.5;
+  // Full (100%) shot speed, motor rot/s; Shooting commands this and Flywheel Speed Limit (%)
+  // scales it. Matches the fastest shot the removed distance table commanded (5.06 m HUB point:
+  // 61.49 rot/s * 1.085 field calibration = 66.7), so 100% stays inside the calibrated range.
+  public static final double MaxShotVelocity = 67.0;
   public static final MotorIOPhoenix6Config Drum_CONFIG =
       new MotorIOPhoenix6Config(Drum_LU_ID, CAN_BUS)
           .withRotorToMechanismRatio(Drum_ROTOR_TO_MECHANISM_RATIO)

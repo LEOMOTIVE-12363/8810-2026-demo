@@ -33,7 +33,6 @@ import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.math.system.plant.DCMotor;
-import edu.wpi.first.units.Units;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -45,10 +44,9 @@ import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.Constants;
 import frc.robot.Constants.Mode;
-import frc.robot.FieldLayout;
-import frc.robot.commands.FerryCommand.FerryConstants;
 import frc.robot.generated.TunerConstants;
 import frc.robot.simulation.MapleSimArena;
+import frc.robot.util.DashboardControls;
 import frc.robot.util.LocalADStarAK;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -217,12 +215,6 @@ public class Drive extends SubsystemBase {
     // Update gyro alert
     gyroDisconnectedAlert.set(!gyroInputs.connected && Constants.currentMode != Mode.SIM);
 
-    Logger.recordOutput(
-        "Odometry/DistanceToHub",
-        getPose().getTranslation().getDistance(new Translation2d(11.9, 4.035)));
-
-    Logger.recordOutput("Odometry/DistanceToFerryTarget", calculateFerryTargetDistance());
-
     // Field2d/NetworkTables serialization showed 20-40 ms spikes in the RIO trace. A 10 Hz field
     // display is visually smooth while leaving the 50 Hz control and AdvantageKit data untouched.
     if (++dashboardPublishCounter >= 5) {
@@ -231,46 +223,15 @@ public class Drive extends SubsystemBase {
     }
   }
 
-  private double calculateFerryTargetDistance() {
-    Pose2d pose = getPose();
-    boolean isRed =
-        DriverStation.getAlliance().isPresent()
-            && DriverStation.getAlliance().get() == Alliance.Red;
-
-    if (FieldLayout.isPoseWithinAllianceZone(isRed, pose)) return 0.0;
-
-    Translation2d target;
-    if (FieldLayout.isPoseOnLeftSide(isRed, pose.getMeasureY())) {
-      if (FieldLayout.distanceFromAllianceWall(pose.getMeasureX(), isRed)
-          .lte(FieldLayout.FIELD_LENGTH.minus(Units.Feet.of(13)))) {
-        target = FieldLayout.handleAllianceFlip(FerryConstants.kBlueLeftFerry, isRed);
-      } else if (FieldLayout.distanceFromAllianceWall(pose.getMeasureX(), isRed)
-          .lte(FieldLayout.FIELD_LENGTH.minus(Units.Feet.of(6.5)))) {
-        target = FieldLayout.handleAllianceFlip(FerryConstants.kBlueLeftFarAllianceFerry, isRed);
-      } else {
-        target = FieldLayout.handleAllianceFlip(FerryConstants.kBlueLeftNeutralFerry, isRed);
-      }
-    } else {
-      if (FieldLayout.distanceFromAllianceWall(pose.getMeasureX(), isRed)
-          .lte(FieldLayout.FIELD_LENGTH.minus(Units.Feet.of(13)))) {
-        target = FieldLayout.handleAllianceFlip(FerryConstants.kBlueRightFerry, isRed);
-      } else if (FieldLayout.distanceFromAllianceWall(pose.getMeasureX(), isRed)
-          .lte(FieldLayout.FIELD_LENGTH.minus(Units.Feet.of(6.5)))) {
-        target = FieldLayout.handleAllianceFlip(FerryConstants.kBlueRightFarAllianceFerry, isRed);
-      } else {
-        target = FieldLayout.handleAllianceFlip(FerryConstants.kBlueRightNeutralFerry, isRed);
-      }
-    }
-    Logger.recordOutput("Odometry/TargetPose", new Pose2d(target, Rotation2d.k180deg));
-    return pose.getTranslation().getDistance(target);
-  }
-
   /**
    * Runs the drive at the desired velocity.
    *
    * @param speeds Speeds in meters/sec
    */
   public void runVelocity(ChassisSpeeds speeds) {
+    // Apply the dashboard Drive/Turn speed limits (no-op in autonomous)
+    speeds = DashboardControls.applyDriveLimits(speeds);
+
     // Calculate module setpoints
     ChassisSpeeds discreteSpeeds = ChassisSpeeds.discretize(speeds, 0.02);
     SwerveModuleState[] setpointStates = kinematics.toSwerveModuleStates(discreteSpeeds);
@@ -310,6 +271,7 @@ public class Drive extends SubsystemBase {
    */
   public void runVelocityWithCenterOfRotation(
       ChassisSpeeds speeds, Translation2d centerOfRotation) {
+    speeds = DashboardControls.applyDriveLimits(speeds);
     ChassisSpeeds discreteSpeeds = ChassisSpeeds.discretize(speeds, 0.02);
     SwerveModuleState[] setpointStates =
         kinematics.toSwerveModuleStates(discreteSpeeds, centerOfRotation);

@@ -33,8 +33,7 @@ public class Manual extends Command {
 
   private boolean isDrumAtSpeed() {
     double target = ManualConstants.ShooterRotpsTunable.getAsDouble();
-    return Math.abs(Drum.mInstance.getVelocityRotPerSec() - target)
-        < ManualConstants.SHOOTER_VELOCITY_TOLERANCE_ROTPS;
+    return Drum.mInstance.isAtVelocity(target, ManualConstants.SHOOTER_VELOCITY_TOLERANCE_ROTPS);
   }
 
   private boolean isHoodAtAngle() {

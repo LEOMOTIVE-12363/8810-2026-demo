@@ -7,7 +7,7 @@ FRC Team 8810 offseason robot code for the **2026 game "REBUILT"**. Java 17, WPI
 - **FUEL** — the game piece: small foam balls, handled in bulk (intake → hopper → indexer → shooter).
 - **HUB** — the central scoring goal on each alliance side. Blue hub at (4.623, 4.030) m, red at (11.917, 4.030) m (`Constants.FieldConstants`).
 - **TRENCH** — a low tunnel structure robots can drive under to cross between field zones. There are four trench openings: two X positions (blue x≈4.625 m, red x≈11.915 m, structure centers) × two Y positions (y≈0.666 m "down", y≈7.403 m "up"). The structure is ~47 in (1.194 m) deep along X; sim collision box is 53 in. See `AutoTrenchCommandConstants` — those numbers come from maple-sim's `Arena2026Rebuilt` collision geometry.
-- **Ferrying** — when on the far (neutral) side of the HUB, lob fuel toward the alliance side instead of shooting (`Ferry` command; `FieldLayout.isPoseInAllianceArea` decides shoot vs ferry).
+- **Demo shooting** — this branch is set up for demonstrations: shooting uses operator-set flywheel speed and hood angle from Elastic, with no auto-aim, ferrying, or distance-based setpoints.
 - Field: 54 ft × 26 ft. All poses are stored blue-origin; `FieldLayout.handleAllianceFlip` rotates 180° about field center for red.
 
 ## Build & workflow
@@ -57,8 +57,7 @@ Each subsystem folder pairs `X.java` with `XConstants.java` (CAN IDs, gains, sim
 
 One folder per command, each with its own `*Constants.java`:
 
-- `ShootingCommand/Shooting` — aim + spin up + feed at the HUB (moving-while-shooting takes joystick suppliers).
-- `FerryCommand/Ferry` — lob from neutral zone. `RobotContainer.shootOrFerryCommand()` defers between the two based on pose.
+- `ShootingCommand/Shooting` — spin up to the Elastic `Flywheel Speed Limit (%)` / `Hood Angle (%)` settings, then feed. No aiming, pose, or vision dependency, and it does not require the drivetrain.
 - `AutoTrenchCommand` — driver-assist trench pass: PID aligns Y + heading to the closest trench (ALIGN state), gates X speed near the entry face, then lets the driver drive through (PASS state). Retargets to the closest trench every cycle.
 - `AutopilotTrenchCommand` — fully automatic trench pass using the [Autopilot library](https://github.com/therekrab/autopilot). The handoff adapts to the next Choreo path's ideal starting state: path starts at rest → settle at its start pose; starts moving past the trench exit → PASS carries that velocity and finishes crossing the handoff plane; starts moving *before the entrance* (the path drives the trench itself) → APPROACH targets the path start directly at its start velocity and hands off there. Used in autonomous.
 - `AutoCommands/BlockAutoBuilder` — dashboard-configurable "building block" auto: scans `deploy/choreo` for `<Side><Section><Variant>.traj` (e.g. `Left1InnerSwap.traj`), publishes side + per-section choosers, assembles path→shoot→trench-pass sequences at auto start.
@@ -70,6 +69,7 @@ One folder per command, each with its own `*Constants.java`:
 
 - All IO inputs go through `Logger.processInputs(...)`; command internals via `Logger.recordOutput("CommandName/...")`.
 - `LoggedTunableNumber` for values tuned live from AdvantageScope/Elastic.
+- `util/DashboardControls` — operator percentages from Elastic (`/SmartDashboard/Drive Speed Limit (%)`, `Turn Speed Limit (%)`, `Flywheel Speed Limit (%)`, `Hood Angle (%)`). Drive/Turn are applied once in `Drive.runVelocity` (teleop only); Flywheel once in `Drum.setVelocityRotPerSec`; Hood maps onto `HoodConstants.MinAngleDeg..MaxAngleDeg`. `elastic-layout.json` has matching sliders.
 - **Sim does not exercise real-robot control gains** — `MotorIOSim` has its own sim config, so PID tuned in sim says nothing about the real mechanism. Real tuning is done from AdvantageScope log review.
 
 ## Key files

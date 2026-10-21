@@ -15,13 +15,11 @@ import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.commands.AutoCommands.AutoCommands;
 import frc.robot.commands.AutoCommands.BlockAutoBuilder;
 import frc.robot.commands.DriveCommands.DriveCommands;
-import frc.robot.commands.FerryCommand.Ferry;
 import frc.robot.commands.HoodZeroCommand.HoodZeroCommand;
 import frc.robot.commands.IntakeCommand.IntakeCommand;
 import frc.robot.commands.IntakeDeployZeroCommand.IntakeDeployZeroCommand;
 import frc.robot.commands.ManualCommand.Manual;
 import frc.robot.commands.ShootingCommand.Shooting;
-import frc.robot.commands.ShootingCommand.ShootingConstants;
 import frc.robot.generated.TunerConstants;
 import frc.robot.simulation.FuelSimulation;
 import frc.robot.simulation.MapleSimArena;
@@ -40,8 +38,8 @@ import frc.robot.subsystems.drive.ModuleIO;
 import frc.robot.subsystems.drive.ModuleIOSim;
 import frc.robot.subsystems.drive.ModuleIOTalonFX;
 import frc.robot.subsystems.vision.Vision;
+import frc.robot.util.DashboardControls;
 import frc.robot.util.LoggedTunableNumber;
-import java.util.Set;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
@@ -51,7 +49,8 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
  * subsystems, commands, and button mappings) should be declared here.
  */
 public class RobotContainer {
-  private static final double K_SPEED_TUNE_STEP = 0.01;
+  // D-pad up/down nudges Flywheel Speed Limit (%) by this much.
+  private static final double FLYWHEEL_PERCENT_STEP = 1.0;
 
   // Subsystems
   private final Drive drive;
@@ -206,17 +205,12 @@ public class RobotContainer {
     controller
         .povUp()
         .onTrue(
-            Commands.runOnce(
-                () ->
-                    ShootingConstants.kSpeed.set(
-                        ShootingConstants.kSpeed.get() + K_SPEED_TUNE_STEP)));
+            Commands.runOnce(() -> DashboardControls.adjustFlywheelPercent(FLYWHEEL_PERCENT_STEP)));
     controller
         .povDown()
         .onTrue(
             Commands.runOnce(
-                () ->
-                    ShootingConstants.kSpeed.set(
-                        ShootingConstants.kSpeed.get() - K_SPEED_TUNE_STEP)));
+                () -> DashboardControls.adjustFlywheelPercent(-FLYWHEEL_PERCENT_STEP)));
 
     controller
         .b()
@@ -281,7 +275,7 @@ public class RobotContainer {
         .onTrue(
             new HoodZeroCommand()
                 .alongWith(new IntakeDeployZeroCommand(IntakeDeployZeroCommand.Direction.OUTWARD)));
-    controller.rightBumper().whileTrue(shootOrFerryCommand());
+    controller.rightBumper().whileTrue(new Shooting(false));
     controller.leftTrigger(0.1).whileTrue(new IntakeCommand());
     controller
         .leftBumper()
@@ -301,9 +295,7 @@ public class RobotContainer {
                   Feeder.mInstance.setV(0);
                   IntakeRoller.mInstance.setV(0);
                 }));
-    controller
-        .a()
-        .whileTrue(new Shooting(true, () -> -controller.getLeftY(), () -> -controller.getLeftX()));
+    controller.a().whileTrue(new Shooting(true));
 
     // Sim-only: Start button clears every ball on the field and resets the robot pose / intake
     // stock. Ignored entirely on a real robot so the binding can stay in the code.
@@ -320,24 +312,6 @@ public class RobotContainer {
                 .ignoringDisable(true));
   }
 
-  /** True when the robot is on its alliance side of the HUB. */
-  private boolean isInAllianceArea() {
-    boolean isRed =
-        DriverStation.getAlliance().isPresent()
-            && DriverStation.getAlliance().get() == Alliance.Red;
-    return FieldLayout.isPoseInAllianceArea(isRed, drive.getPose());
-  }
-
-  /** Alliance side of the HUB: shoot at the HUB; neutral side: ferry. */
-  private Command shootOrFerryCommand() {
-    return Commands.defer(
-        () ->
-            isInAllianceArea()
-                ? new Shooting(false, () -> -controller.getLeftY(), () -> -controller.getLeftX())
-                : new Ferry(),
-        Set.of(drive, drum, feeder, hood, indexer, intakeDeploy, intakeRoller));
-  }
-
   /**
    * Use this to pass the autonomous command to the main {@link Robot} class.
    *
@@ -350,6 +324,7 @@ public class RobotContainer {
   /** Dashboard outputs refreshed every loop (block-auto selection table, etc.). */
   public void updateDashboardOutputs() {
     blockAutoBuilder.publishSelection();
+    hood.publishDashboard();
     // Pre-build the block auto while disabled so auto init pays no path-loading cost.
     blockAutoBuilder.updatePrebuild();
   }

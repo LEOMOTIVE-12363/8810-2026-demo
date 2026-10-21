@@ -23,6 +23,13 @@ public final class HoodConstants {
   // Mechanism position (rotations) the encoder is reset to once the hood drives into its hard stop.
   public static final double HoodZeroPosition = 0.0;
 
+  // Hood Angle (%) range in mechanism degrees (position rot * 360). 0% is the zeroed hard stop
+  // (fully lowered, steepest shot); 100% is 25 deg, the largest angle the calibrated shot tables
+  // ever commanded (ferry table max). No upper soft limit is configured on the Talon, so this is
+  // the enforced ceiling — raise it only after measuring the real mechanical travel.
+  public static final double MinAngleDeg = HoodZeroPosition * 360.0;
+  public static final double MaxAngleDeg = 25.0;
+
   public static final MotorIOPhoenix6Config Hood_CONFIG =
       new MotorIOPhoenix6Config(Hood_ID, CAN_BUS)
           .withRotorToMechanismRatio(Hood_ROTOR_TO_MECHANISM_RATIO)

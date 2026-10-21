@@ -164,9 +164,9 @@ public final class AutoCommands {
                     .map(Event::getTimestampSeconds));
   }
 
-  /** Timed shooting burst: aim + shoot for a fixed duration, then cleanly retract. */
+  /** Timed shooting burst at the dashboard flywheel/hood settings, then cleanly retract. */
   static Command timedShoot(double duration) {
-    return new Shooting(false, () -> 0.0, () -> 0.0).withTimeout(duration);
+    return new Shooting(false).withTimeout(duration);
   }
 
   /** Runs only the PID test trajectory after resetting odometry to its start pose. */

@@ -12,6 +12,7 @@ import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import frc.lib.rebuilt.ShiftUtil;
 import frc.robot.simulation.FuelSimulation;
 import frc.robot.simulation.MapleSimArena;
+import frc.robot.util.DashboardControls;
 import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
 import org.littletonrobotics.junction.Logger;
@@ -106,6 +107,9 @@ public class Robot extends LoggedRobot {
     Logger.recordOutput("Shift/Active", shiftInfo.active());
     Logger.recordOutput("Shift/ElapsedTime", shiftInfo.elapsedTime());
     Logger.recordOutput("Shift/RemainingTime", shiftInfo.remainingTime());
+
+    // Effective Elastic control values. Called every loop so the dashboard entries exist from boot.
+    DashboardControls.logEffectiveValues();
 
     // Return to non-RT thread priority (do not modify the first argument)
     // Threads.setCurrentThreadPriority(false, 10);
