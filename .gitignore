@@ -187,3 +187,7 @@ compile_commands.json
 src/main/java/frc/robot/BuildConstants.java
 # Python venv for scripts/nt_tune.py (NT4 PID monitor)
 .venv-tune/
+
+# Python bytecode for scripts/
+__pycache__/
+*.pyc

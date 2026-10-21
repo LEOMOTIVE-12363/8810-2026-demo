@@ -1,19 +1,14 @@
 package frc.robot;
 
-import com.pathplanner.lib.auto.AutoBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.GenericHID;
 import edu.wpi.first.wpilibj.XboxController;
-import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
-import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
-import frc.robot.commands.AutoCommands.AutoCommands;
-import frc.robot.commands.AutoCommands.BlockAutoBuilder;
 import frc.robot.commands.DriveCommands.DriveCommands;
 import frc.robot.commands.HoodZeroCommand.HoodZeroCommand;
 import frc.robot.commands.IntakeCommand.IntakeCommand;
@@ -37,10 +32,8 @@ import frc.robot.subsystems.drive.GyroIOSim;
 import frc.robot.subsystems.drive.ModuleIO;
 import frc.robot.subsystems.drive.ModuleIOSim;
 import frc.robot.subsystems.drive.ModuleIOTalonFX;
-import frc.robot.subsystems.vision.Vision;
 import frc.robot.util.DashboardControls;
 import frc.robot.util.LoggedTunableNumber;
-import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
  * This class is where the bulk of the robot should be declared. Since Command-based is a
@@ -67,16 +60,8 @@ public class RobotContainer {
   private final IntakeRoller intakeRoller = IntakeRoller.mInstance;
   private final LoggedTunableNumber retract = new LoggedTunableNumber("retract", 25);
 
-  // Created after the drive in the constructor because its camera reads the drive pose
-  private Vision vision = Vision.mInstance;
-  //   private Vision vision2 = Vision.mInstance2;
-
   // Controller
   private final CommandXboxController controller = new CommandXboxController(1);
-
-  // Dashboard inputs
-  private final LoggedDashboardChooser<Command> autoChooser;
-  private final BlockAutoBuilder blockAutoBuilder = new BlockAutoBuilder();
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
@@ -142,44 +127,7 @@ public class RobotContainer {
     }
     Drive.mInstance = drive;
 
-    // Initialize the vision subsystem after Drive.mInstance is set, since its
-    // periodic reads the drive pose
-    vision = Vision.mInstance;
-    // vision2 = Vision.mInstance2;
-
-    // No EventTrigger bindings for Choreo event markers: EventTrigger commands are scheduled on
-    // the main scheduler, so their subsystem requirements conflict with the deferred block auto
-    // (which holds every subsystem) and cancel the entire auto the moment a marker fires. The
-    // "IntakeZeroOut" work now runs inline before the first path in
-    // AutoCommands.firstPathWithIntake; any marker still present in a .traj simply fires into an
-    // unbound trigger.
-
-    // Set up auto routines
-    autoChooser = new LoggedDashboardChooser<>("Auto Choices", AutoBuilder.buildAutoChooser());
-    // Commented out 2026-07-11: leftThreePieceAuto's Choreo trajectories no longer exist — see
-    // the commented-out method in AutoCommands.
-    // autoChooser.addOption("Left Three-Piece", AutoCommands.leftThreePieceAuto());
-    autoChooser.addOption("PID Path Only", AutoCommands.pidTestPathAuto());
-
-    // Building-block auto: side + per-section path variants selected on the BlockAuto/* choosers,
-    // assembled when autonomous starts.
-    autoChooser.addOption("Block Auto (dashboard)", blockAutoBuilder.buildCommand());
-
-    // Set up SysId routines
-    autoChooser.addOption(
-        "Drive Wheel Radius Characterization", DriveCommands.wheelRadiusCharacterization(drive));
-    autoChooser.addOption(
-        "Drive Simple FF Characterization", DriveCommands.feedforwardCharacterization(drive));
-    autoChooser.addOption(
-        "Drive SysId (Quasistatic Forward)",
-        drive.sysIdQuasistatic(SysIdRoutine.Direction.kForward));
-    autoChooser.addOption(
-        "Drive SysId (Quasistatic Reverse)",
-        drive.sysIdQuasistatic(SysIdRoutine.Direction.kReverse));
-    autoChooser.addOption(
-        "Drive SysId (Dynamic Forward)", drive.sysIdDynamic(SysIdRoutine.Direction.kForward));
-    autoChooser.addOption(
-        "Drive SysId (Dynamic Reverse)", drive.sysIdDynamic(SysIdRoutine.Direction.kReverse));
+    // Demo robot: no autonomous routines, no vision — teleop only.
 
     // Configure the button bindings
     configureButtonBindings();
@@ -312,20 +260,8 @@ public class RobotContainer {
                 .ignoringDisable(true));
   }
 
-  /**
-   * Use this to pass the autonomous command to the main {@link Robot} class.
-   *
-   * @return the command to run in autonomous
-   */
-  public Command getAutonomousCommand() {
-    return autoChooser.get();
-  }
-
-  /** Dashboard outputs refreshed every loop (block-auto selection table, etc.). */
+  /** Dashboard outputs refreshed every loop. */
   public void updateDashboardOutputs() {
-    blockAutoBuilder.publishSelection();
     hood.publishDashboard();
-    // Pre-build the block auto while disabled so auto init pays no path-loading cost.
-    blockAutoBuilder.updatePrebuild();
   }
 }
