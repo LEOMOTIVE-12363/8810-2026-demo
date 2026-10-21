@@ -191,3 +191,8 @@ src/main/java/frc/robot/BuildConstants.java
 # Python bytecode for scripts/
 __pycache__/
 *.pyc
+
+# Private AI-collaboration config and engineering logs — never commit
+CLAUDE.md
+AGENTS.md
+engineering-log/
