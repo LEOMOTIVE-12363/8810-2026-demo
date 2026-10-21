@@ -67,4 +67,4 @@ CI (GitHub Actions) runs `./gradlew build` on every push; unformatted code fails
 
 ## License
 
-No top-level license is set for this repository; bundled dependency licenses are in [WPILib-License.md](WPILib-License.md) and [AdvantageKit-License.md](AdvantageKit-License.md).
+[MIT License](LICENSE) © 2026 FRC Team 8810 Alphabots. Bundled dependency licenses are in [WPILib-License.md](WPILib-License.md) and [AdvantageKit-License.md](AdvantageKit-License.md).

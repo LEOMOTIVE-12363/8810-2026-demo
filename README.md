@@ -67,4 +67,4 @@ CI（GitHub Actions）在每次推送运行 `./gradlew build`，格式未过即�
 
 ## 许可
 
-本仓库未设置顶层开源协议；自带依赖协议见 [WPILib-License.md](WPILib-License.md) 与 [AdvantageKit-License.md](AdvantageKit-License.md)。
+[MIT License](LICENSE) © 2026 FRC Team 8810 Alphabots。依赖协议另见 [WPILib-License.md](WPILib-License.md) 与 [AdvantageKit-License.md](AdvantageKit-License.md)。
