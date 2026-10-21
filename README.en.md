@@ -10,7 +10,7 @@
 
 Robot code for the 2026 FIRST Robotics Competition game **REBUILT**, by team [**8810 Alphabots**](https://www.thebluealliance.com/team/8810). Java 17 · WPILib command-based · built on the AdvantageKit TalonFX swerve template.
 
-> **About this repository**: this is a fork of the team's competition repo [Alphabots-8810/8810-2026-offseason](https://github.com/Alphabots-8810/8810-2026-offseason), hosting development of the **demo line** — `main` mirrors the team's competition code, while the `demo` branch is a teleop-only demo build. See [Branch model](#branch-model).
+> **About this repository**: this is a fork of the team's competition repo [Alphabots-8810/8810-2026-offseason](https://github.com/Alphabots-8810/8810-2026-offseason), hosting development of the **demo line** — `main` tracks the team's competition code (permanently one MIT LICENSE commit ahead), while the `demo` branch is a teleop-only demo build. See [Branch model](#branch-model).
 
 ## Highlights
 
@@ -28,7 +28,7 @@ The full capability set of the `main` competition code (the `demo` line is its t
 
 | Branch | Contents |
 |---|---|
-| `main` | Team competition code: full autonomous (Choreo trajectories + PathPlanner), vision, tactical commands |
+| `main` | Team competition code + a permanent MIT LICENSE commit: full autonomous (Choreo trajectories + PathPlanner), vision, tactical commands |
 | `demo` | **Demo line** (day-to-day development of this fork): all autonomous programs and vision removed, teleop-only; Elastic sliders directly control Drum speed / Hood angle, plus a dedicated demo tuning tab |
 
 - Changes on the demo line are **never merged into `main`**; each task lands as its own PR with base `demo`, merged right after self-checks pass.

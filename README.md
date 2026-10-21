@@ -10,7 +10,7 @@
 
 FIRST Robotics Competition 战队 [**8810 Alphabots**](https://www.thebluealliance.com/team/8810) 的 2026 赛季（游戏 **REBUILT**）机器人代码：Java 17 · WPILib 命令式框架 · 基于 AdvantageKit TalonFX swerve 模板。
 
-> **关于本仓库**：这里是战队竞赛仓库 [Alphabots-8810/8810-2026-offseason](https://github.com/Alphabots-8810/8810-2026-offseason) 的 fork，承载 **demo 展示线**的开发——`main` 镜像战队竞赛代码，`demo` 分支是纯手动演示版本，详见[分支模型](#分支模型)。
+> **关于本仓库**：这里是战队竞赛仓库 [Alphabots-8810/8810-2026-offseason](https://github.com/Alphabots-8810/8810-2026-offseason) 的 fork，承载 **demo 展示线**的开发——`main` 跟随战队竞赛代码（仅永久多一个 MIT LICENSE 提交），`demo` 分支是纯手动演示版本，详见[分支模型](#分支模型)。
 
 ## 功能亮点
 
@@ -28,7 +28,7 @@ FIRST Robotics Competition 战队 [**8810 Alphabots**](https://www.theblueallian
 
 | 分支 | 内容 |
 |---|---|
-| `main` | 战队竞赛代码：完整自动程序（Choreo 轨迹 + PathPlanner）、视觉、战术程序 |
+| `main` | 战队竞赛代码 + 常驻 MIT LICENSE 提交：完整自动程序（Choreo 轨迹 + PathPlanner）、视觉、战术程序 |
 | `demo` | **demo 展示线**（本仓库的日常开发线）：移除全部自动程序与视觉，纯手动驾驶；Elastic 滑条直控 Drum 转速 / Hood 俯仰，并新增 demo 调参页 |
 
 - demo 展示线的改动**永不合入 `main`**；每个任务一个独立 PR，base 为 `demo`，自检通过后即合入。
