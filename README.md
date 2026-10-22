@@ -22,7 +22,7 @@
 - **视觉** — Limelight（MegaTag2）全局位姿估计，融入 swerve 里程计
 - **AdvantageKit 三模式** — REAL / SIM / REPLAY 共用一套代码，日志可确定性回放
 - **maple-sim 桌面仿真** — 2026 REBUILT 场地（含 HUB / Trench 碰撞体）物理仿真
-- **Elastic 自定义仪表盘** — 布局版本化于 `elastic-layout.json`；配套 NetworkTables 调参脚本 `scripts/nt_tune.py`、`scripts/pid_analysis.py`
+- **Elastic 自定义仪表盘** — 布局版本化于 `elastic-layout-1022.json`；配套 NetworkTables 调参脚本 `scripts/nt_tune.py`、`scripts/pid_analysis.py`
 
 ## 分支模型
 
@@ -33,6 +33,36 @@
 
 - demo 展示线的功能改动**永不合入 `main`**；每个任务一个独立 PR，base 为 `demo`，自检通过后即合入。仓库共用的中英 README 同步维护：从 `demo` 发起文档改动，再以独立 PR 将相同文案同步至 `main`。
 - `demo` 相对 `main` 的全部差异见 [PR #2](https://github.com/LEOMOTIVE-12363/Alphabots-2026-lm/pull/2)——长期保持 open，仅作差异总览。
+
+## demo 手柄分工
+
+Driver Station 编号 **1 优先于 0**，优先级同时适用于驾驶和所有按键。只要 1 号连接，0 号输入就不生效；1 号断开后切换到 0 号，两者均断开时驾驶输入为零。编号是 Driver Station 槽位，不是电脑物理 USB 插口。
+
+| 功能 | 1 号：展示简化版 | 0 号：完整功能版 |
+|---|---|---|
+| 行驶 / 转向 | 左摇杆 / 右摇杆横轴 | 相同 |
+| 吸球 / 吐球 / 射球 | LT / LB / RB | 相同 |
+| 收 intake / 重置底盘朝向 | 方向键左 / B | 相同 |
+| 电流送料射球 / Manual 调参射球 | 无 | A / X |
+| 向外校准 intake 并归零射角 | 无 | Y |
+| 送料机构局部反转 | 无 | RT |
+| 飞轮速度上限微调 | 无 | 方向键上 / 下 |
+| 重置仿真场地（实车无效） | 无 | Start |
+
+LT 同时展开 intake 并吸球，松开后停止吸球但不自动收回。方向键左执行向内收回及机械归零校准。LB/RT 反转为点动式：按下当拍将吸球滚轮、Indexer、Feeder（RT 仅 Indexer/Feeder）设为反转，松开、断连或失去手柄优先权时归零；反转不占用子系统，因此与射球同时进行时反转写入会被射球循环覆盖（沿用原有行为，本轮有意未改）。Elastic 显示两只手柄的连接状态及当前控制端口（`Active Controller`，`-1` 表示均未连接）。
+
+## 演示面板与送球门控
+
+射球命令运行期间，送球全程受实时就绪门控：飞轮速度上限 > 0、Drum 达到目标转速、Hood 达到目标角度三者同时成立才允许送球。连射中途就绪失守即暂停 Feeder / Indexer / 吸球滚轮（Drum 与 Hood 保持原目标不变），恢复稳定就绪（0.15 s 防抖）后自动续打，无需松键重按；松键即结束命令。Manual（X）调参射球遵循同一规则。
+
+Elastic 演示页展示以下只读操作状态：
+
+- `Robot Action` / `Feed Allowed` / `Feed Blocked Reason`
+- `Drum Target Speed (rot/s)` / `Drum Actual Speed (rot/s)`
+- `Battery Voltage (V)`
+- `Controller 0 Connected` / `Controller 1 Connected` / `Active Controller`（`-1` 表示两手柄均未连接）
+
+以上门控行为与面板尚未在实车上验证。
 
 ## 构建与仿真
 
@@ -52,7 +82,7 @@
 - `frc.robot.subsystems` — 单例模式（每个子系统 `public static final mInstance`），`X.java` + `XConstants.java` 成对（CAN ID、增益、仿真配置）。
 - `frc.robot.commands` — 每个命令独立目录，各带 `*Constants.java`。
 - 三种运行模式由 `Constants.currentMode`（REAL / SIM / REPLAY）切换，各子系统按模式选择 IO 实现。
-- `elastic-layout.json` — Elastic 仪表盘布局，与代码内 NetworkTables 接口同步维护。
+- `elastic-layout-1022.json` — Elastic 仪表盘布局，与代码内 NetworkTables 接口同步维护。
 
 ## 开发流程与决策记录
 
