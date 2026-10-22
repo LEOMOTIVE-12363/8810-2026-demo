@@ -22,7 +22,7 @@ The following capabilities come from the upstream competition code retained on `
 - **Vision** — Limelight (MegaTag2) global pose estimation fused into swerve odometry
 - **AdvantageKit three-mode architecture** — REAL / SIM / REPLAY share one codebase, with deterministic log replay
 - **maple-sim desktop simulation** — 2026 REBUILT arena (HUB / Trench collision geometry) physics sim
-- **Custom Elastic dashboard** — layout versioned in `elastic-layout.json`, plus NetworkTables tuning scripts `scripts/nt_tune.py` / `scripts/pid_analysis.py`
+- **Custom Elastic dashboard** — layout versioned in `elastic-layout-1022.json`, plus NetworkTables tuning scripts `scripts/nt_tune.py` / `scripts/pid_analysis.py`
 
 ## Branch model
 
@@ -33,6 +33,36 @@ The following capabilities come from the upstream competition code retained on `
 
 - Demo-line feature changes are **never merged into `main`**; each task lands as its own PR with base `demo`, merged after self-checks pass. The shared Chinese and English READMEs are kept in sync: documentation changes originate on `demo`, then the same text is mirrored to `main` through a separate PR.
 - The full `demo`-vs-`main` diff lives in [PR #2](https://github.com/LEOMOTIVE-12363/Alphabots-2026-lm/pull/2) — kept open on purpose as a diff overview.
+
+## Demo controller roles
+
+Driver Station port **1 takes priority over 0** for both driving and every button. While port 1 is connected, port 0 inputs are ignored; disconnecting port 1 falls back to port 0. With neither connected, drive inputs are zero. These are Driver Station slots, not physical USB sockets.
+
+| Function | Port 1: simplified demo | Port 0: full controls |
+|---|---|---|
+| Drive / turn | Left stick / right-stick X | Same |
+| Intake / eject / shoot | LT / LB / RB | Same |
+| Retract intake / reset heading | D-pad left / B | Same |
+| Current-feed shooting / Manual tuning shot | Unbound | A / X |
+| Outward intake calibration + hood homing | Unbound | Y |
+| Feeder/indexer-only reverse | Unbound | RT |
+| Flywheel speed-limit adjustment | Unbound | D-pad up / down |
+| Reset simulated field (no real-robot action) | Unbound | Start |
+
+LT extends the intake and runs collection; release stops collection without retracting. D-pad left retracts and homes against the inward stop. LB/RT reverse is momentary: pressing sets the intake roller, indexer, and feeder (RT: indexer/feeder only) reversing; release, disconnect, or loss of controller priority zeroes them. The bindings take no subsystem ownership, so a concurrently running shooting loop overwrites the reverse writes (original behavior, intentionally unchanged). Elastic displays both connection states and the active port (`Active Controller`, `-1` when neither is connected).
+
+## Operator panel & feed gating
+
+While a shot command runs, feeding is continuously gated on live readiness: flywheel speed limit > 0, drum at target speed, and hood at target angle must all hold. Losing readiness mid-volley pauses the feeder / indexer / intake roller (drum and hood keep their targets); once readiness is stable again (0.15 s debounce) feeding auto-resumes without re-pressing; releasing the key ends the command. Manual (X) tuning shots follow the same rule.
+
+The Elastic demo page shows read-only operator status:
+
+- `Robot Action` / `Feed Allowed` / `Feed Blocked Reason`
+- `Drum Target Speed (rot/s)` / `Drum Actual Speed (rot/s)`
+- `Battery Voltage (V)`
+- `Controller 0 Connected` / `Controller 1 Connected` / `Active Controller` (`-1` = neither controller connected)
+
+The gating behavior and panel are not yet verified on the real robot.
 
 ## Build & simulation
 
@@ -52,7 +82,7 @@ The repository includes a GitHub Actions workflow configured to run `./gradlew b
 - `frc.robot.subsystems` — singleton pattern (`public static final mInstance` per subsystem), `X.java` + `XConstants.java` pairs (CAN IDs, gains, sim config).
 - `frc.robot.commands` — one folder per command, each with its own `*Constants.java`.
 - Runtime mode switches on `Constants.currentMode` (REAL / SIM / REPLAY); each subsystem picks its IO implementation accordingly.
-- `elastic-layout.json` — Elastic dashboard layout, kept in sync with the NetworkTables interfaces in code.
+- `elastic-layout-1022.json` — Elastic dashboard layout, kept in sync with the NetworkTables interfaces in code.
 
 ## Development workflow & decision records
 
