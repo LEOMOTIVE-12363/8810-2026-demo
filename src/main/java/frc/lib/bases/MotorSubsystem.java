@@ -20,6 +20,7 @@ public class MotorSubsystem extends SubsystemBase {
 
   private final String logKey;
   private final Alert disconnectedAlert;
+  private Double statorCurrentAmpsOverrideForTest = null;
 
   public MotorSubsystem(MotorIO io, String logKey, String disconnectedAlertText) {
     this(io, logKey, disconnectedAlertText, false);
@@ -36,6 +37,11 @@ public class MotorSubsystem extends SubsystemBase {
   @Override
   public void periodic() {
     io.updateInputs(inputs);
+    // Test-only override lands after the IO refresh but before logging, so the log and every
+    // consumer of these inputs (e.g. jam detection) see the same forced current.
+    if (statorCurrentAmpsOverrideForTest != null) {
+      inputs.statorCurrentAmps = new double[] {statorCurrentAmpsOverrideForTest};
+    }
     Logger.processInputs(logKey, inputs);
     disconnectedAlert.set(!inputs.connected);
   }
@@ -63,6 +69,11 @@ public class MotorSubsystem extends SubsystemBase {
   /** Returns the leader motor's stator current. */
   public double getStatorCurrentAmps() {
     return inputs.statorCurrentAmps.length == 0 ? 0.0 : inputs.statorCurrentAmps[0];
+  }
+
+  /** Test-only: forces the reported stator current; pass null to clear. */
+  public void setStatorCurrentAmpsOverrideForTest(Double ampsOrNull) {
+    statorCurrentAmpsOverrideForTest = ampsOrNull;
   }
 
   public void setV(double volts) {

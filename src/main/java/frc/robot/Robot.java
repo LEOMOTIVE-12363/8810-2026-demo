@@ -12,6 +12,7 @@ import frc.lib.rebuilt.ShiftUtil;
 import frc.robot.simulation.FuelSimulation;
 import frc.robot.simulation.MapleSimArena;
 import frc.robot.util.DashboardControls;
+import frc.robot.util.OperatorStatus;
 import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
 import org.littletonrobotics.junction.Logger;
@@ -94,11 +95,19 @@ public class Robot extends LoggedRobot {
     // the Command-based framework to work.
     CommandScheduler.getInstance().run();
 
+    // Operator panel state (mechanism action + feed readiness) tracks the control decisions
+    // every loop; only the SmartDashboard publish below is rate-limited to human frequency.
+    OperatorStatus.update();
+
     // Dashboard data only needs human-display frequency. The RIO trace showed NetworkTables
     // serialization taking 20-40 ms, so publish these values at 10 Hz instead of every loop.
     if (++dashboardPublishCounter >= 5) {
       dashboardPublishCounter = 0;
       robotContainer.updateDashboardOutputs();
+      // The operator status panel is also published here so it stays live no matter which
+      // controller-binding scheme RobotContainer carries (the driver/demo controller sits on
+      // DS port 1 in both).
+      OperatorStatus.publish(1);
       ShiftUtil.publishShiftInfo();
     }
 

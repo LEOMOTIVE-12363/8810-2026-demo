@@ -23,8 +23,6 @@ public final class ManualConstants {
    * 5.06 25 61
    *
    */
-  public static final double SHOOTER_VELOCITY_TOLERANCE_ROTPS = 1.0;
-  public static final double HOOD_ANGLE_TOLERANCE_ROT = 0.1;
 
   private ManualConstants() {}
 }
