@@ -4,11 +4,9 @@ import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
-import edu.wpi.first.wpilibj.GenericHID;
-import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
-import edu.wpi.first.wpilibj2.command.InstantCommand;
-import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.commands.DriveCommands.DriveCommands;
 import frc.robot.commands.HoodZeroCommand.HoodZeroCommand;
 import frc.robot.commands.IntakeCommand.IntakeCommand;
@@ -35,7 +33,10 @@ import frc.robot.subsystems.drive.ModuleIOSim;
 import frc.robot.subsystems.drive.ModuleIOTalonFX;
 import frc.robot.util.BallFlowTracker;
 import frc.robot.util.DashboardControls;
-import frc.robot.util.LoggedTunableNumber;
+import frc.robot.util.DriverControls;
+import frc.robot.util.DriverControls.Action;
+import frc.robot.util.OperatorStatus;
+import org.littletonrobotics.junction.Logger;
 
 /**
  * This class is where the bulk of the robot should be declared. Since Command-based is a
@@ -61,10 +62,9 @@ public class RobotContainer {
   private final IntakeDeploy intakeDeploy = IntakeDeploy.mInstance;
   private final IntakeRoller intakeRoller = IntakeRoller.mInstance;
   private final LED led = LED.mInstance;
-  private final LoggedTunableNumber retract = new LoggedTunableNumber("retract", 25);
 
-  // Controller
-  private final CommandXboxController controller = new CommandXboxController(1);
+  // Port 1 is the preferred demo controller; port 0 retains the full original controls.
+  private final DriverControls controls = new DriverControls();
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
@@ -136,133 +136,47 @@ public class RobotContainer {
     configureButtonBindings();
   }
 
-  /**
-   * Use this method to define your button->command mappings. Buttons can be created by
-   * instantiating a {@link GenericHID} or one of its subclasses ({@link
-   * edu.wpi.first.wpilibj.Joystick} or {@link XboxController}), and then passing it to a {@link
-   * edu.wpi.first.wpilibj2.command.button.JoystickButton}.
-   */
+  /** Bind the five demo actions on both ports, and the remaining actions on port 0 only. */
   private void configureButtonBindings() {
-    // Default command, normal field-relative drive
     drive.setDefaultCommand(
         DriveCommands.joystickDrive(
             drive,
-            () -> -controller.getLeftY() * 0.9,
-            () -> -controller.getLeftX() * 0.9,
-            () -> -controller.getRightX()));
-    controller
-        .povLeft()
-        .onTrue(new IntakeDeployZeroCommand(IntakeDeployZeroCommand.Direction.INWARD));
-    controller
-        .povUp()
-        .onTrue(
+            () -> -controls.leftY() * 0.9,
+            () -> -controls.leftX() * 0.9,
+            () -> -controls.rightX()));
+
+    controls.onPress(
+        Action.RETRACT,
+        () -> new IntakeDeployZeroCommand(IntakeDeployZeroCommand.Direction.INWARD));
+    controls.onPress(Action.RESET_HEADING, this::resetHeadingCommand);
+    controls.whileHeld(Action.INTAKE, IntakeCommand::new);
+    controls.whileHeld(Action.SHOOT, () -> new Shooting(false));
+    controls.onPress(Action.EJECT, () -> reverseFeedPressCommand(true));
+    controls.onRelease(Action.EJECT, () -> reverseFeedReleaseCommand(true));
+    controls.whileHeld(Action.EJECT, () -> reverseFeedHeartbeatCommand(true));
+
+    controls.onPress(
+        Action.FLYWHEEL_UP,
+        () ->
             Commands.runOnce(() -> DashboardControls.adjustFlywheelPercent(FLYWHEEL_PERCENT_STEP)));
-    controller
-        .povDown()
-        .onTrue(
+    controls.onPress(
+        Action.FLYWHEEL_DOWN,
+        () ->
             Commands.runOnce(
                 () -> DashboardControls.adjustFlywheelPercent(-FLYWHEEL_PERCENT_STEP)));
-
-    controller
-        .b()
-        .onTrue(
-            Commands.runOnce(
-                    () -> {
-                      // Zero heading toward the opposing alliance wall. On red the field is
-                      // flipped, so "forward" is 180 deg from the blue origin frame.
-                      boolean isFlipped =
-                          DriverStation.getAlliance().isPresent()
-                              && DriverStation.getAlliance().get() == Alliance.Red;
-                      drive.setPose(
-                          new Pose2d(
-                              drive.getPose().getTranslation(),
-                              isFlipped ? Rotation2d.kPi : Rotation2d.kZero));
-                    },
-                    drive)
-                .ignoringDisable(true));
-
-    // controller
-    //     .a()
-    //     .onTrue(
-    //         new InstantCommand(
-    //             () -> {
-    //               IntakeDeploy.mInstance.setPositionCentimeter(retract.getAsDouble(), 50, 1000,
-    // 0);
-    //               IntakeRoller.mInstance.setVelocityRotPerSec(40);
-    //             },
-    //             IntakeDeploy.mInstance,
-    //             IntakeRoller.mInstance));
-    // controller
-    //     .a()
-    //     .onFalse(
-    //         new InstantCommand(
-    //             () -> {
-    //               IntakeDeploy.mInstance.setPositionCentimeter(retract.getAsDouble(), 50, 1000,
-    // 0);
-    //               IntakeRoller.mInstance.setV(0);
-    //             },
-    //             IntakeDeploy.mInstance,
-    //             IntakeRoller.mInstance));
-    controller.x().whileTrue(new Manual());
-    controller
-        .rightTrigger()
-        .onTrue(
-            new InstantCommand(
-                () -> {
-                  Indexer.mInstance.setV(-3);
-                  Feeder.mInstance.setV(-3);
-                }));
-    controller
-        .rightTrigger()
-        .onFalse(
-            new InstantCommand(
-                () -> {
-                  Indexer.mInstance.setV(0);
-                  Feeder.mInstance.setV(0);
-                }));
-    // Display-only heartbeats for the LED ball-flow layer: Commands.run has no subsystem
-    // requirements, so these bindings never preempt or alter the mechanism commands above.
-    controller
-        .rightTrigger()
-        .whileTrue(
-            Commands.run(() -> BallFlowTracker.report(BallFlowTracker.FlowKind.LOCAL_REVERSE)));
-
-    controller
-        .y()
-        .onTrue(
+    controls.whileHeld(Action.MANUAL_SHOOT, Manual::new);
+    controls.whileHeld(Action.CURRENT_FEED_SHOOT, () -> new Shooting(true));
+    controls.onPress(Action.REVERSE_FEED, () -> reverseFeedPressCommand(false));
+    controls.onRelease(Action.REVERSE_FEED, () -> reverseFeedReleaseCommand(false));
+    controls.whileHeld(Action.REVERSE_FEED, () -> reverseFeedHeartbeatCommand(false));
+    controls.onPress(
+        Action.ZERO_OUTWARD,
+        () ->
             new HoodZeroCommand()
                 .alongWith(new IntakeDeployZeroCommand(IntakeDeployZeroCommand.Direction.OUTWARD)));
-    controller.rightBumper().whileTrue(new Shooting(false));
-    controller.leftTrigger(0.1).whileTrue(new IntakeCommand());
-    controller
-        .leftBumper()
-        .onTrue(
-            new InstantCommand(
-                () -> {
-                  Indexer.mInstance.setV(-3);
-                  Feeder.mInstance.setV(-3);
-                  IntakeRoller.mInstance.setV(-3);
-                }));
-    controller
-        .leftBumper()
-        .onFalse(
-            new InstantCommand(
-                () -> {
-                  Indexer.mInstance.setV(0);
-                  Feeder.mInstance.setV(0);
-                  IntakeRoller.mInstance.setV(0);
-                }));
-    controller
-        .leftBumper()
-        .whileTrue(
-            Commands.run(() -> BallFlowTracker.report(BallFlowTracker.FlowKind.FULL_REVERSE)));
-    controller.a().whileTrue(new Shooting(true));
-
-    // Sim-only: Start button clears every ball on the field and resets the robot pose / intake
-    // stock. Ignored entirely on a real robot so the binding can stay in the code.
-    controller
-        .start()
-        .onTrue(
+    controls.onPress(
+        Action.RESET_SIM,
+        () ->
             Commands.runOnce(
                     () -> {
                       if (Constants.currentMode == Constants.Mode.SIM
@@ -273,8 +187,72 @@ public class RobotContainer {
                 .ignoringDisable(true));
   }
 
-  /** Dashboard outputs refreshed every loop. */
+  private Command resetHeadingCommand() {
+    return Commands.runOnce(
+            () -> {
+              boolean isFlipped = DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
+              drive.setPose(
+                  new Pose2d(
+                      drive.getPose().getTranslation(),
+                      isFlipped ? Rotation2d.kPi : Rotation2d.kZero));
+            },
+            drive)
+        .ignoringDisable(true);
+  }
+
+  // Momentary reverse semantics, restored verbatim from the original pre-DriverControls bindings:
+  // press/release write the motors with NO subsystem ownership, so a concurrently running Shooting
+  // loop overwrites the reverse writes — that documented conflict is intentionally preserved
+  // (2026-10-22 decision). Release, a disconnect, or losing controller priority still zeroes the
+  // motors via the release binding, and the heartbeat drives only the display layers.
+  private Command reverseFeedPressCommand(boolean includeIntake) {
+    return Commands.runOnce(
+        () -> {
+          Indexer.mInstance.setV(-3);
+          Feeder.mInstance.setV(-3);
+          if (includeIntake) {
+            IntakeRoller.mInstance.setV(-3);
+          }
+        });
+  }
+
+  private Command reverseFeedReleaseCommand(boolean includeIntake) {
+    return Commands.runOnce(
+        () -> {
+          Indexer.mInstance.setV(0);
+          Feeder.mInstance.setV(0);
+          if (includeIntake) {
+            IntakeRoller.mInstance.setV(0);
+          }
+        });
+  }
+
+  private Command reverseFeedHeartbeatCommand(boolean includeIntake) {
+    return Commands.run(
+        () -> {
+          BallFlowTracker.report(
+              includeIntake
+                  ? BallFlowTracker.FlowKind.FULL_REVERSE
+                  : BallFlowTracker.FlowKind.LOCAL_REVERSE);
+          OperatorStatus.report(
+              includeIntake
+                  ? OperatorStatus.Action.REVERSING_FULL
+                  : OperatorStatus.Action.REVERSING_LOCAL);
+        });
+  }
+
+  /**
+   * Dashboard outputs refreshed every loop. The operator-status panel is published separately by
+   * {@link Robot}'s 10 Hz block so it stays live no matter which controller-binding scheme this
+   * class carries.
+   */
   public void updateDashboardOutputs() {
     hood.publishDashboard();
+    Logger.recordOutput("Controls/ActiveController", controls.activePort());
+    if (!Logger.hasReplaySource()) {
+      SmartDashboard.putBoolean(
+          "Controller 0 Connected", DriverStation.isJoystickConnected(DriverControls.FULL_PORT));
+      SmartDashboard.putNumber("Active Controller", controls.activePort());
+    }
   }
 }
