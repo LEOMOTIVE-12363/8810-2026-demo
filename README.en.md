@@ -29,7 +29,7 @@ The following capabilities come from the upstream competition code retained on `
 | Branch | Contents |
 |---|---|
 | `main` | Upstream Alphabots 8810 competition-code baseline, retaining this fork's MIT LICENSE, bilingual README, and private-config untracking changes: full autonomous (Choreo trajectories + PathPlanner), vision, tactical commands |
-| `demo` | **LEOMOTIVE demo line** (day-to-day development of this fork): all autonomous programs and vision removed, teleop-only; Elastic sliders directly control Drum speed / Hood angle, plus a dedicated demo tuning tab |
+| `demo` | **LEOMOTIVE demo line** (day-to-day development of this fork): all autonomous programs and vision removed, teleop-only; Elastic sliders directly control Drum speed / Hood angle, plus a dedicated demo tuning tab; addressable LED strip (five Día de los Muertos themes + ball-flow effects for intake/shoot/eject; theme, idle effect and brightness switchable from Elastic and power-cycle persistent; strip section map and animation numbers pending real-strip verification) |
 
 - Demo-line feature changes are **never merged into `main`**; each task lands as its own PR with base `demo`, merged after self-checks pass. The shared Chinese and English READMEs are kept in sync: documentation changes originate on `demo`, then the same text is mirrored to `main` through a separate PR.
 - The full `demo`-vs-`main` diff lives in [PR #2](https://github.com/LEOMOTIVE-12363/Alphabots-2026-lm/pull/2) — kept open on purpose as a diff overview.

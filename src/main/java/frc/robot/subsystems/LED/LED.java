@@ -1,33 +1,75 @@
 package frc.robot.subsystems.LED;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.AddressableLEDBuffer;
-import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj.util.Color;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
+import frc.robot.util.BallFlowTracker;
+import frc.robot.util.BallFlowTracker.FlowState;
 import frc.robot.util.DashboardControls;
+import java.util.function.Function;
 import org.littletonrobotics.junction.Logger;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
+import org.littletonrobotics.junction.networktables.LoggedNetworkBoolean;
 
 /**
- * Addressable LED strip. The active effect comes from the Elastic "LED Pattern" chooser and global
- * brightness from the "/Tuning/LED Brightness (%)" slider (default 100%) — both power-cycle
- * persistent like the other Elastic settings. Robot-state-driven effects (alliance color, game
- * piece, …) will layer on top of this chooser later.
+ * Addressable LED strip. The Elastic "LED Pattern" chooser picks between the five legacy effects
+ * and the five Day of the Dead themes; theme patterns render the theme gradient with the
+ * independently chosen "LED Idle Effect" and, while "LED Follow Ball Flow" is on, a ball-flow
+ * action layer showing that the intake→shooter mechanism is running and in which direction (an
+ * activity indication, never a per-ball position track). Global brightness comes from the
+ * "/Tuning/LED Brightness (%)" slider. All three settings are power-cycle persistent like the other
+ * Elastic settings.
+ *
+ * <p>All timing derives from the AdvantageKit log timestamp so replays reproduce the exact output;
+ * in replay mode nothing is written to NetworkTables or the settings file.
  */
 public class LED extends SubsystemBase {
   public static final LED mInstance = new LED();
 
-  /** Settings-store key of the chooser; its NT entry is "/SmartDashboard/LED Pattern". */
+  /** Settings-store key of the pattern chooser; its NT entry is "/SmartDashboard/LED Pattern". */
   public static final String PATTERN_SETTING_KEY = "/SmartDashboard/LED Pattern";
 
+  /** Settings-store key of the idle-effect chooser; NT entry "/SmartDashboard/LED Idle Effect". */
+  public static final String EFFECT_SETTING_KEY = "/SmartDashboard/LED Idle Effect";
+
+  /** Settings key of the ball-flow toggle; NT entry "/SmartDashboard/LED Follow Ball Flow". */
+  public static final String FOLLOW_FLOW_SETTING_KEY = "/SmartDashboard/LED Follow Ball Flow";
+
   private static final int MAX_VALUE = 255;
+  private static final boolean DEFAULT_FOLLOW_FLOW = true;
+
+  /**
+   * Loops after boot during which no idle-effect recommendation is written: the restore writes to
+   * the choosers' "selected" entries need a few loops to propagate through NT, and until they do
+   * the restored theme must not be mistaken for an operator change (which would overwrite the
+   * restored effect with the theme's recommendation).
+   */
+  private static final int BOOT_RECOMMENDATION_SUPPRESSION_LOOPS = 5;
 
   private final LoggedDashboardChooser<LEDPattern> patternChooser =
       new LoggedDashboardChooser<>("LED Pattern");
+  private final LoggedDashboardChooser<IdleEffect> effectChooser =
+      new LoggedDashboardChooser<>("LED Idle Effect");
+  private final LoggedNetworkBoolean followFlowInput =
+      new LoggedNetworkBoolean(FOLLOW_FLOW_SETTING_KEY, DEFAULT_FOLLOW_FLOW);
 
   private final LEDIO io;
   private final AddressableLEDBuffer buffer = new AddressableLEDBuffer(LEDConstants.LENGTH_PIXELS);
+  private final LEDLayout layout = LEDLayout.fromConstants();
+  private final LEDSection[] sections = layout.sections();
+  private final BallFlowLayer flowLayer = new BallFlowLayer();
+
+  private double lastTimestampSec = -1.0;
+  private LEDPattern lastPattern; // restore intent; baseline for spotting operator theme changes
+  private int loopsSinceBoot;
+  private LEDTheme activeTheme;
+  private LEDTheme previousTheme;
+  private double themeTransitionStartSec;
 
   private LED() {
     io =
@@ -36,50 +78,265 @@ public class LED extends SubsystemBase {
           case REPLAY -> new LEDIO() {};
         };
 
-    patternChooser.addDefaultOption(LEDPattern.RAINBOW.getDashboardName(), LEDPattern.RAINBOW);
+    patternChooser.addDefaultOption(
+        LEDPattern.MARIGOLD_BRIDGE.getDashboardName(), LEDPattern.MARIGOLD_BRIDGE);
     for (LEDPattern pattern : LEDPattern.values()) {
-      if (pattern != LEDPattern.RAINBOW) {
+      if (pattern != LEDPattern.MARIGOLD_BRIDGE) {
         patternChooser.addOption(pattern.getDashboardName(), pattern);
+      }
+    }
+    effectChooser.addDefaultOption(IdleEffect.SLOW_FLOW.getDashboardName(), IdleEffect.SLOW_FLOW);
+    for (IdleEffect effect : IdleEffect.values()) {
+      if (effect != IdleEffect.SLOW_FLOW) {
+        effectChooser.addOption(effect.getDashboardName(), effect);
       }
     }
 
     restoreSavedPattern();
+    restoreSavedEffect();
+    restoreSavedFollowFlow();
+    activeTheme = lastPattern != null ? lastPattern.theme().orElse(null) : null;
   }
 
   /**
    * Re-selects the pattern saved by the previous run, exactly as if the operator had picked it on
-   * the dashboard (writes the chooser's "selected" NT entry, which Elastic drives the same way). An
-   * unknown saved name (e.g. left over from an older build) is ignored, keeping the Rainbow
-   * default.
+   * the dashboard (writes the chooser's "selected" NT entry, which Elastic drives the same way),
+   * and establishes the baseline used to spot operator theme changes later. An unknown saved name
+   * (e.g. left over from an older build) is ignored, keeping the Marigold Bridge default.
    */
   private void restoreSavedPattern() {
-    if (Constants.currentMode == Constants.Mode.REPLAY) {
+    if (Logger.hasReplaySource()) {
+      // No restore intent in replay; the first periodic adopts whatever the log replays.
+      lastPattern = null;
       return;
     }
+    lastPattern = LEDPattern.MARIGOLD_BRIDGE;
     String saved = DashboardControls.getSavedString(PATTERN_SETTING_KEY, null);
     if (saved == null) {
       return;
     }
     for (LEDPattern pattern : LEDPattern.values()) {
       if (pattern.getDashboardName().equals(saved)) {
-        NetworkTableInstance.getDefault()
-            .getEntry(PATTERN_SETTING_KEY + "/selected")
-            .setString(saved);
+        selectOnChooser(PATTERN_SETTING_KEY, saved);
+        lastPattern = pattern;
         return;
       }
     }
     System.err.println("[LED] Unknown saved pattern \"" + saved + "\"; keeping the default");
   }
 
+  /**
+   * Restores the saved idle effect like {@link #restoreSavedPattern()}. An unknown saved name falls
+   * back to the restored theme's recommended effect — written to the chooser so the dashboard shows
+   * what actually renders; a restored legacy pattern (no theme) keeps the chooser default.
+   */
+  private void restoreSavedEffect() {
+    if (Logger.hasReplaySource()) {
+      return;
+    }
+    String saved = DashboardControls.getSavedString(EFFECT_SETTING_KEY, null);
+    if (saved == null) {
+      return;
+    }
+    if (IdleEffect.fromDashboardName(saved, null) != null) {
+      selectOnChooser(EFFECT_SETTING_KEY, saved);
+      return;
+    }
+    System.err.println(
+        "[LED] Unknown saved idle effect \"" + saved + "\"; using the theme's recommended effect");
+    if (lastPattern != null) {
+      lastPattern
+          .theme()
+          .ifPresent(
+              theme ->
+                  selectOnChooser(
+                      EFFECT_SETTING_KEY, theme.getRecommendedEffect().getDashboardName()));
+    }
+  }
+
+  /** Restores the saved ball-flow toggle; an unreadable saved value keeps the default (on). */
+  private void restoreSavedFollowFlow() {
+    if (Logger.hasReplaySource()) {
+      return;
+    }
+    String saved = DashboardControls.getSavedString(FOLLOW_FLOW_SETTING_KEY, null);
+    if (saved == null) {
+      return;
+    }
+    if (saved.equalsIgnoreCase("true") || saved.equalsIgnoreCase("false")) {
+      followFlowInput.set(Boolean.parseBoolean(saved));
+    } else {
+      System.err.println(
+          "[LED] Unknown saved follow-ball-flow value \"" + saved + "\"; keeping the default");
+    }
+  }
+
+  /** Writes a chooser's "selected" NT entry, the same way Elastic applies an operator pick. */
+  private static void selectOnChooser(String settingKey, String dashboardName) {
+    NetworkTableInstance.getDefault().getEntry(settingKey + "/selected").setString(dashboardName);
+  }
+
   @Override
   public void periodic() {
+    double now = Logger.getTimestamp() / 1e6;
+    double dtSec = lastTimestampSec < 0.0 ? 0.0 : MathUtil.clamp(now - lastTimestampSec, 0.0, 0.1);
+    lastTimestampSec = now;
+    loopsSinceBoot++;
+
     LEDPattern pattern = patternChooser.get();
     if (pattern == null) {
       pattern = LEDPattern.OFF;
     }
+    recommendEffectOnThemeChange(pattern);
+
+    IdleEffect effect = effectChooser.get();
+    if (effect == null) {
+      effect = IdleEffect.SLOW_FLOW;
+    }
+    boolean followFlow = followFlowInput.get();
+    double brightnessPercent = DashboardControls.getLedBrightnessPercent();
+
     DashboardControls.persistStringIfChanged(PATTERN_SETTING_KEY, pattern.getDashboardName());
-    double scale = DashboardControls.getLedBrightnessPercent() / 100.0 * MAX_VALUE;
-    double time = Timer.getFPGATimestamp();
+    DashboardControls.persistStringIfChanged(EFFECT_SETTING_KEY, effect.getDashboardName());
+    DashboardControls.persistStringIfChanged(FOLLOW_FLOW_SETTING_KEY, Boolean.toString(followFlow));
+
+    // Display-only priority: off/brightness0 (handled at render) > disabled > tracker effective
+    // state. This never feeds back into the mechanism commands the tracker reads.
+    boolean disabled = DriverStation.isDisabled();
+    FlowState flowTarget = FlowState.IDLE;
+    if (!disabled && followFlow) {
+      flowTarget = BallFlowTracker.effectiveState();
+    }
+    // The layer advances even while off or dark, so the phase is continuous when the strip
+    // resumes displaying.
+    flowLayer.update(dtSec, flowTarget);
+
+    if (pattern.theme().isPresent()) {
+      renderThemePattern(pattern.theme().get(), effect, now, brightnessPercent, followFlow);
+    } else {
+      renderLegacyPattern(pattern, now, brightnessPercent);
+    }
+    io.writeBuffer(buffer);
+
+    publishStatus(pattern, effect, brightnessPercent, disabled, followFlow, flowTarget);
+  }
+
+  /**
+   * When the operator switches the pattern to a theme, pre-selects that theme's recommended idle
+   * effect (the operator can override it afterwards). Suppressed for the first loops after boot so
+   * a restored theme+effect pair survives: the boot restore never counts as an operator change.
+   */
+  private void recommendEffectOnThemeChange(LEDPattern pattern) {
+    if (lastPattern == null) {
+      // No restore ran (replay): adopt the first observation as the baseline.
+      lastPattern = pattern;
+      return;
+    }
+    if (loopsSinceBoot <= BOOT_RECOMMENDATION_SUPPRESSION_LOOPS) {
+      return;
+    }
+    if (pattern == lastPattern) {
+      return;
+    }
+    lastPattern = pattern;
+    if (Logger.hasReplaySource()) {
+      return;
+    }
+    pattern
+        .theme()
+        .ifPresent(
+            theme ->
+                selectOnChooser(
+                    EFFECT_SETTING_KEY, theme.getRecommendedEffect().getDashboardName()));
+  }
+
+  /**
+   * Renders a Day of the Dead theme: idle effect (gradient × temporal envelope) per section over
+   * its logical u, then the ball-flow layer blended over the BALL_PATH sections, then the global
+   * brightness (and the optional WS2811 R/G swap) as one final pass over the whole buffer.
+   */
+  private void renderThemePattern(
+      LEDTheme theme, IdleEffect effect, double now, double brightnessPercent, boolean followFlow) {
+    Function<Double, Color> themeColor = transitioningThemeColor(theme, now);
+    int length = buffer.getLength();
+    double brightnessScale = brightnessPercent / 100.0;
+    if (brightnessScale <= 0.0) {
+      // Brightness 0 => fully dark (the flow layer above kept advancing regardless).
+      for (int i = 0; i < length; i++) {
+        buffer.setRGB(i, 0, 0, 0);
+      }
+      return;
+    }
+    // Pixels not covered by any section would otherwise keep stale colors from a previous frame.
+    for (int i = 0; i < length; i++) {
+      buffer.setRGB(i, 0, 0, 0);
+    }
+    for (LEDSection section : sections) {
+      int start = Math.max(section.startPixel(), 0);
+      int end = Math.min(section.startPixel() + section.lengthPixels(), length);
+      for (int i = start; i < end; i++) {
+        double u = section.uForPixel(i);
+        Color color =
+            IdleEffects.scale(
+                IdleEffects.colorAt(effect, themeColor, u, now),
+                IdleEffects.envelope(effect, u, now));
+        buffer.setRGB(
+            i,
+            IdleEffects.to255(color.red),
+            IdleEffects.to255(color.green),
+            IdleEffects.to255(color.blue));
+      }
+    }
+    if (followFlow && flowLayer.getBlend() > 0.0) {
+      flowLayer.apply(buffer, sections, themeColor);
+    }
+    // Global brightness applies once, at the very end. Skipped entirely at full brightness so the
+    // 8-bit round trip cannot round a pixel down by one count.
+    if (brightnessScale < 1.0 || LEDConstants.SWAP_RED_GREEN_FOR_WS2811) {
+      for (int i = 0; i < length; i++) {
+        Color color = IdleEffects.scale(buffer.getLED(i), brightnessScale);
+        double red = color.red;
+        double green = color.green;
+        if (LEDConstants.SWAP_RED_GREEN_FOR_WS2811) {
+          red = color.green;
+          green = color.red;
+        }
+        buffer.setRGB(
+            i, IdleEffects.to255(red), IdleEffects.to255(green), IdleEffects.to255(color.blue));
+      }
+    }
+  }
+
+  /**
+   * The active theme's gradient, RGB-crossfaded from the previous theme for {@link
+   * LEDConstants#THEME_TRANSITION_SEC} after an operator theme switch (boot starts directly on the
+   * restored theme, without a transition).
+   */
+  private Function<Double, Color> transitioningThemeColor(LEDTheme theme, double now) {
+    if (theme != activeTheme) {
+      previousTheme = activeTheme;
+      activeTheme = theme;
+      themeTransitionStartSec = now;
+    }
+    if (previousTheme == null) {
+      return activeTheme::colorAt;
+    }
+    double blend = (now - themeTransitionStartSec) / LEDConstants.THEME_TRANSITION_SEC;
+    if (blend >= 1.0) {
+      previousTheme = null;
+      return activeTheme::colorAt;
+    }
+    LEDTheme from = previousTheme;
+    LEDTheme to = activeTheme;
+    return u -> IdleEffects.lerp(from.colorAt(u), to.colorAt(u), blend);
+  }
+
+  /**
+   * The five legacy effects with their original per-pattern math (including brightness applied to
+   * the HSV value channel); they ignore themes, sections and the ball-flow layer.
+   */
+  private void renderLegacyPattern(LEDPattern pattern, double now, double brightnessPercent) {
+    double scale = brightnessPercent / 100.0 * MAX_VALUE;
     int length = buffer.getLength();
 
     switch (pattern) {
@@ -94,7 +351,7 @@ public class LED extends SubsystemBase {
         }
       }
       case RAINBOW -> {
-        int offset = (int) Math.round(time / LEDConstants.RAINBOW_FULL_CYCLE_SEC * 180.0) % 180;
+        int offset = (int) Math.round(now / LEDConstants.RAINBOW_FULL_CYCLE_SEC * 180.0) % 180;
         for (int i = 0; i < length; i++) {
           buffer.setHSV(i, (i * 180 / length + offset) % 180, MAX_VALUE, (int) scale);
         }
@@ -102,7 +359,7 @@ public class LED extends SubsystemBase {
       case CHASE -> {
         // Comet with CHASE_TAIL_PIXELS fade trailing its head, wrapping around the strip.
         double head =
-            (time * LEDConstants.CHASE_SPEED_PIXELS_PER_SEC)
+            (now * LEDConstants.CHASE_SPEED_PIXELS_PER_SEC)
                 % (length + LEDConstants.CHASE_TAIL_PIXELS);
         for (int i = 0; i < length; i++) {
           double distanceBehindHead = head - i;
@@ -117,15 +374,72 @@ public class LED extends SubsystemBase {
         int value =
             (int)
                 (scale
-                    * (0.5 - 0.5 * Math.cos(2 * Math.PI * time / LEDConstants.BREATHE_PERIOD_SEC)));
+                    * (0.5 - 0.5 * Math.cos(2 * Math.PI * now / LEDConstants.BREATHE_PERIOD_SEC)));
         for (int i = 0; i < length; i++) {
           buffer.setHSV(i, LEDConstants.BREATHE_HUE, MAX_VALUE, value);
         }
       }
+      default -> {
+        // Theme patterns never reach this method.
+      }
+    }
+  }
+
+  /**
+   * Publishes the read-only display status for Elastic and logs everything needed to reproduce the
+   * output in replay: final display state, state source/diagnostics, theme, effect, direction,
+   * phase and blend. NT writes are skipped in replay.
+   */
+  private void publishStatus(
+      LEDPattern pattern,
+      IdleEffect effect,
+      double brightnessPercent,
+      boolean disabled,
+      boolean followFlow,
+      FlowState flowTarget) {
+    String diagnostic = BallFlowTracker.diagnostic();
+    String effectiveState;
+    if (pattern == LEDPattern.OFF || brightnessPercent <= 0.0) {
+      effectiveState = "Off";
+    } else if (disabled) {
+      effectiveState = "Disabled";
+    } else if (!followFlow) {
+      effectiveState = "Idle";
+    } else if (diagnostic.contains("conflict")) {
+      effectiveState = "Conflict";
+    } else if (diagnostic.contains("local reverse")) {
+      effectiveState = "LocalReverse";
+    } else {
+      effectiveState =
+          switch (flowTarget) {
+            case FORWARD -> "Forward";
+            case REVERSE -> "Reverse";
+            case IDLE -> "Idle";
+          };
+    }
+    String direction =
+        switch (flowTarget) {
+          case FORWARD -> "Forward";
+          case REVERSE -> "Reverse";
+          case IDLE -> "None";
+        };
+
+    if (!Logger.hasReplaySource()) {
+      SmartDashboard.putString("LED Effective State", effectiveState);
+      SmartDashboard.putString("LED Flow Direction", direction);
     }
 
-    io.writeBuffer(buffer);
     Logger.recordOutput("LED/Pattern", pattern.toString());
-    Logger.recordOutput("LED/BrightnessPercent", DashboardControls.getLedBrightnessPercent());
+    Logger.recordOutput("LED/Theme", pattern.theme().map(LEDTheme::toString).orElse(""));
+    Logger.recordOutput("LED/IdleEffect", effect.toString());
+    Logger.recordOutput("LED/FollowBallFlow", followFlow);
+    Logger.recordOutput("LED/FlowState", flowTarget.toString());
+    Logger.recordOutput("LED/FlowDirection", direction);
+    Logger.recordOutput("LED/FlowPhase", flowLayer.getPhase());
+    Logger.recordOutput("LED/FlowBlend", flowLayer.getBlend());
+    Logger.recordOutput("LED/BrightnessPercent", brightnessPercent);
+    Logger.recordOutput("LED/SectionLayout", layout.describe());
+    Logger.recordOutput("LED/BallFlowDiagnostic", diagnostic);
+    Logger.recordOutput("LED/EffectiveState", effectiveState);
   }
 }

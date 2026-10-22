@@ -12,6 +12,7 @@ import frc.robot.subsystems.Indexer.Indexer;
 import frc.robot.subsystems.IntakeDeploy.IntakeDeploy;
 import frc.robot.subsystems.IntakeDeploy.IntakeDeployConstants;
 import frc.robot.subsystems.IntakeRoller.IntakeRoller;
+import frc.robot.util.BallFlowTracker;
 import frc.robot.util.DashboardControls;
 import org.littletonrobotics.junction.Logger;
 
@@ -211,6 +212,14 @@ public class Shooting extends Command {
       case SHOOT -> shoot();
       case RETRACT -> retract();
       case UNJAM -> unjam();
+    }
+    // Heartbeat the semantic feed state for the LED ball-flow display; display-only. SPIN_UP
+    // feeds nothing, so it reports nothing and the strip keeps its idle effect; UNJAM reverses
+    // only the feeder/indexer, so it reports a local reverse, never a whole-path one.
+    switch (state) {
+      case SHOOT, RETRACT -> BallFlowTracker.report(BallFlowTracker.FlowKind.FEED);
+      case UNJAM -> BallFlowTracker.report(BallFlowTracker.FlowKind.LOCAL_REVERSE);
+      case SPIN_UP -> {}
     }
     Logger.recordOutput("Shooting/state", state.toString());
   }
