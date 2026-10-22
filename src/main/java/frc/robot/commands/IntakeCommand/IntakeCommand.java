@@ -8,6 +8,7 @@ import frc.robot.subsystems.Feeder.Feeder;
 import frc.robot.subsystems.Indexer.Indexer;
 import frc.robot.subsystems.IntakeDeploy.IntakeDeploy;
 import frc.robot.subsystems.IntakeRoller.IntakeRoller;
+import frc.robot.util.BallFlowTracker;
 
 public class IntakeCommand extends Command {
   private final double intakeDeployCruiseVelocity;
@@ -44,6 +45,8 @@ public class IntakeCommand extends Command {
   public void execute() {
     runIntake();
     updatePreload();
+    // Heartbeat the semantic intake state for the LED ball-flow display; display-only.
+    BallFlowTracker.report(BallFlowTracker.FlowKind.INTAKE);
   }
 
   private void runIntake() {

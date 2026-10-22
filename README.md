@@ -29,7 +29,7 @@
 | 分支 | 内容 |
 |---|---|
 | `main` | 上游 Alphabots 8810 竞赛代码基线，保留本 fork 的 MIT LICENSE、双语 README 与私有配置退跟踪改动：完整自动程序（Choreo 轨迹 + PathPlanner）、视觉、战术程序 |
-| `demo` | **LEOMOTIVE demo 展示线**（本仓库的日常开发线）：移除全部自动程序与视觉，纯手动驾驶；Elastic 滑条直控 Drum 转速 / Hood 俯仰，并新增 demo 调参页 |
+| `demo` | **LEOMOTIVE demo 展示线**（本仓库的日常开发线）：移除全部自动程序与视觉，纯手动驾驶；Elastic 滑条直控 Drum 转速 / Hood 俯仰，并新增 demo 调参页；可寻址 LED 灯带（亡灵节五套主题配色 + 吸球/发球/吐球球路流光，主题 / 待机效果 / 亮度 Elastic 可切换且断电持久化；灯带分段与动画参数待实灯核验） |
 
 - demo 展示线的功能改动**永不合入 `main`**；每个任务一个独立 PR，base 为 `demo`，自检通过后即合入。仓库共用的中英 README 同步维护：从 `demo` 发起文档改动，再以独立 PR 将相同文案同步至 `main`。
 - `demo` 相对 `main` 的全部差异见 [PR #2](https://github.com/LEOMOTIVE-12363/Alphabots-2026-lm/pull/2)——长期保持 open，仅作差异总览。

@@ -33,6 +33,7 @@ import frc.robot.subsystems.drive.GyroIOSim;
 import frc.robot.subsystems.drive.ModuleIO;
 import frc.robot.subsystems.drive.ModuleIOSim;
 import frc.robot.subsystems.drive.ModuleIOTalonFX;
+import frc.robot.util.BallFlowTracker;
 import frc.robot.util.DashboardControls;
 import frc.robot.util.LoggedTunableNumber;
 
@@ -219,6 +220,12 @@ public class RobotContainer {
                   Indexer.mInstance.setV(0);
                   Feeder.mInstance.setV(0);
                 }));
+    // Display-only heartbeats for the LED ball-flow layer: Commands.run has no subsystem
+    // requirements, so these bindings never preempt or alter the mechanism commands above.
+    controller
+        .rightTrigger()
+        .whileTrue(
+            Commands.run(() -> BallFlowTracker.report(BallFlowTracker.FlowKind.LOCAL_REVERSE)));
 
     controller
         .y()
@@ -245,6 +252,10 @@ public class RobotContainer {
                   Feeder.mInstance.setV(0);
                   IntakeRoller.mInstance.setV(0);
                 }));
+    controller
+        .leftBumper()
+        .whileTrue(
+            Commands.run(() -> BallFlowTracker.report(BallFlowTracker.FlowKind.FULL_REVERSE)));
     controller.a().whileTrue(new Shooting(true));
 
     // Sim-only: Start button clears every ball on the field and resets the robot pose / intake

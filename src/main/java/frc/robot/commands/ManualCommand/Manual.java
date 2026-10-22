@@ -7,6 +7,7 @@ import frc.robot.subsystems.Hood.Hood;
 import frc.robot.subsystems.Indexer.Indexer;
 import frc.robot.subsystems.IntakeDeploy.IntakeDeploy;
 import frc.robot.subsystems.IntakeRoller.IntakeRoller;
+import frc.robot.util.BallFlowTracker;
 
 public class Manual extends Command {
   private enum States {
@@ -71,6 +72,11 @@ public class Manual extends Command {
       case SHOOT:
         shoot();
         break;
+    }
+    // Heartbeat the semantic feed state for the LED ball-flow display; display-only. PREPARE
+    // feeds nothing, so it reports nothing and the strip keeps its idle effect.
+    if (state == States.SHOOT) {
+      BallFlowTracker.report(BallFlowTracker.FlowKind.FEED);
     }
   }
 
