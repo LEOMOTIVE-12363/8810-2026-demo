@@ -315,6 +315,7 @@ public class MotorIOPhoenix6 implements MotorIO {
     inputs.tempCelsius = tempCelsius.getValueAsDouble();
     inputs.controlMode = controlMode;
     inputs.voltageSetpoint = voltageSetpoint;
+    inputs.currentSetpointAmps = currentSetpoint;
     inputs.velocitySetpointRadPerSec = velocitySetpointRadPerSec;
     inputs.positionSetpointRad = positionSetpointRad;
   }
@@ -323,6 +324,7 @@ public class MotorIOPhoenix6 implements MotorIO {
   public void setVoltage(double volts) {
     controlMode = ControlMode.VOLTAGE;
     voltageSetpoint = volts;
+    currentSetpoint = 0.0;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = 0.0;
     talon.setControl(voltageRequest.withOutput(volts));
@@ -341,6 +343,7 @@ public class MotorIOPhoenix6 implements MotorIO {
   public void setVelocity(double velocityRadPerSec) {
     controlMode = ControlMode.VELOCITY;
     voltageSetpoint = 0.0;
+    currentSetpoint = 0.0;
     velocitySetpointRadPerSec = velocityRadPerSec;
     positionSetpointRad = 0.0;
     double velocityRotPerSec = Units.radiansToRotations(velocityRadPerSec);
@@ -355,6 +358,7 @@ public class MotorIOPhoenix6 implements MotorIO {
   public void setPosition(double positionRad) {
     controlMode = ControlMode.POSITION;
     voltageSetpoint = 0.0;
+    currentSetpoint = 0.0;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = positionRad;
     double positionRotations = Units.radiansToRotations(positionRad);
@@ -393,6 +397,7 @@ public class MotorIOPhoenix6 implements MotorIO {
   public void stop() {
     controlMode = ControlMode.DISABLED;
     voltageSetpoint = 0.0;
+    currentSetpoint = 0.0;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = 0.0;
     talon.setControl(voltageRequest.withOutput(0.0));
@@ -412,6 +417,7 @@ public class MotorIOPhoenix6 implements MotorIO {
   public void setVelocityRotPerSec(double velocityRotPerSec) {
     controlMode = ControlMode.VELOCITY;
     voltageSetpoint = 0.0;
+    currentSetpoint = 0.0;
     velocitySetpointRadPerSec = Units.rotationsToRadians(velocityRotPerSec);
     positionSetpointRad = 0.0;
     talon.setControl(
@@ -425,6 +431,7 @@ public class MotorIOPhoenix6 implements MotorIO {
   public void setPositionRot(double positionRot) {
     controlMode = ControlMode.POSITION;
     voltageSetpoint = 0.0;
+    currentSetpoint = 0.0;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = Units.rotationsToRadians(positionRot);
     if (config.useDynamicMotionMagic) {

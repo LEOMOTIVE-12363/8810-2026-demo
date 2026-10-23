@@ -92,10 +92,9 @@ class ManualTest {
     manual.initialize();
     stepUntilFeeding(manual, 50);
 
-    // Dropping the flywheel limit to 0% mid-SHOOT stops the feed path within two loops: one loop
-    // to see raw-not-ready and fall back to PREPARE, one for PREPARE to command the stops.
+    // Dropping the flywheel limit to 0% mid-SHOOT stops the feed path on the detection loop: the
+    // raw-not-ready evaluation falls back to PREPARE and commands the stops in the same loop.
     DashboardControlsTestUtil.set(FLYWHEEL, 0.0);
-    step(manual);
     step(manual);
     assertEquals(0.0, Feeder.mInstance.getVelocitySetpointRotPerSec(), EPS);
     assertEquals(0.0, Drum.mInstance.getVelocitySetpointRotPerSec(), EPS);
@@ -129,5 +128,31 @@ class ManualTest {
 
     assertEquals(0.0, Feeder.mInstance.getVelocitySetpointRotPerSec(), EPS);
     assertEquals(0.0, Indexer.mInstance.getVelocitySetpointRotPerSec(), EPS);
+  }
+
+  @Test
+  void acceptanceManualStopsOnFirstNotReadyLoop() {
+    Manual manual = new Manual();
+    manual.initialize();
+    stepUntilFeeding(manual, 50);
+
+    DashboardControlsTestUtil.set(FLYWHEEL, 0.0);
+    step(manual);
+    assertEquals(
+        0.0,
+        Feeder.mInstance.getVelocitySetpointRotPerSec(),
+        EPS,
+        "feeder must stop on the detection loop");
+    assertEquals(
+        0.0,
+        Indexer.mInstance.getVelocitySetpointRotPerSec(),
+        EPS,
+        "indexer must stop on the detection loop");
+    assertEquals(
+        0.0,
+        IntakeRoller.mInstance.getVelocitySetpointRotPerSec(),
+        EPS,
+        "intake roller must stop on the detection loop");
+    manual.end(true);
   }
 }

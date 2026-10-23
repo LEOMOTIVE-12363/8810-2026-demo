@@ -26,17 +26,20 @@ import org.littletonrobotics.junction.Logger;
  * <p>Readiness is gated continuously through the whole volley, not just during SPIN_UP, via the
  * shared {@link ShotReadiness} rule (the same rule the operator dashboard shows): flywheel at speed
  * AND hood at angle, with a 0% Flywheel Speed Limit always blocking feeding (Drum.isAtVelocity is
- * false at 0%). Losing readiness mid-volley pauses feeding — the feed-path motors stop while the
- * drum and hood keep being driven to target — and regaining stable readiness auto-resumes the
- * volley exactly where it left off, without the driver releasing the button. A pause freezes the
- * retract timer mid-count, so paused time never counts toward the retract delay.
+ * false at 0%). Losing readiness mid-volley pauses feeding on that very loop — the feed-path motors
+ * stop immediately while the drum and hood keep being driven to target — and regaining stable
+ * readiness auto-resumes the volley exactly where it left off, without the driver releasing the
+ * button. A pause freezes the retract timer mid-count, so paused time never counts toward the
+ * retract delay.
  *
  * <p>UNJAM always runs its back-off to completion regardless of readiness — clearing a jam is never
  * suppressed by the not-ready gate — then routes through PAUSED instead of resuming directly, so
  * forward feeding restarts only once the shot is stable-ready again (the drum may have sagged while
- * stalled). Because the pause freezes the retract timer, time spent in UNJAM no longer counts
- * toward the retract delay either — previously a >0.2 s unjam during SHOOT meant an instant RETRACT
- * on resume; that behavior change is deliberate.
+ * stalled). The retract timer freezes the moment the back-off starts and the readiness debounce
+ * resets at the same time, so unjam time never counts toward the retract delay and the post-unjam
+ * shot must re-earn a full stable-ready window — previously a >0.2 s unjam during SHOOT meant an
+ * instant RETRACT on resume, and the first ready sample after an unjam meant an instant resume;
+ * both behavior changes are deliberate.
  *
  * <p>Releasing the key still ends the command outright: nothing auto-resumes after end(), and the
  * whileTrue binding re-initializes the command (and the readiness debounce) on the next press.
@@ -68,9 +71,10 @@ public class Shooting extends Command {
   // The feeding state (SHOOT or RETRACT) PAUSED returns to once the shot is stable-ready again.
   private States stateAfterPause;
 
-  // Shared readiness rule (identical to Manual and the operator panel), with this command's own
-  // debounce state; lastEvaluation backs the Shooting/*Ready log keys, including during UNJAM
-  // where deliberately no fresh evaluation runs.
+  // Shared readiness rule (identical to Manual; the operator panel follows this command's reported
+  // decision), with this command's own debounce state; lastEvaluation backs the Shooting/*Ready
+  // log keys and the panel decision, including during UNJAM where deliberately no fresh evaluation
+  // runs.
   private final ShotReadiness readiness = new ShotReadiness();
   private ShotReadiness.Evaluation lastEvaluation;
 
@@ -147,13 +151,20 @@ public class Shooting extends Command {
   /**
    * SHOOT/RETRACT -> UNJAM when the indexer stalls. Returns true when the transition fired;
    * remembers the interrupted state so the volley resumes exactly where it left off (through
-   * PAUSED, see unjam()).
+   * PAUSED, see unjam()). The retract timer freezes the moment the back-off starts and the
+   * readiness debounce resets, so after the back-off the shot must re-earn a fresh stable-ready
+   * window before feeding resumes.
    */
   private boolean checkJamAndStartUnjam(States resumeState) {
     if (!isIndexerJammed()) {
       return false;
     }
     stateAfterUnjam = resumeState;
+    if (retractTimerStarted) {
+      retractTimer.stop();
+    }
+    readiness.reset();
+    lastEvaluation = null;
     state = States.UNJAM;
     unjamTimer.restart();
     return true;
@@ -172,6 +183,10 @@ public class Shooting extends Command {
     Feeder.mInstance.setV(-ShootingConstants.UNJAM_Feeder_Current.getAsDouble());
     Indexer.mInstance.setVelocityRotPerSec(-ShootingConstants.UNJAM_INDEXER_Current.getAsDouble());
     IntakeDeploy.mInstance.setPositionCentimeter(55);
+    // The rule is not evaluated during a back-off, but the debouncer must keep seeing not-ready
+    // samples — its timer only re-anchors on a baseline sample, so a quiet 0.5 s back-off would
+    // otherwise let the first post-unjam ready sample pass the stable window instantly.
+    readiness.holdNotReady();
 
     if (unjamTimer.hasElapsed(ShootingConstants.UNJAM_DURATION_SEC.getAsDouble())) {
       enterPause(stateAfterUnjam);
@@ -211,10 +226,11 @@ public class Shooting extends Command {
     if (checkJamAndStartUnjam(States.SHOOT)) {
       return;
     }
-    // Losing readiness mid-volley pauses feeding instantly; PAUSED auto-resumes the volley once
-    // the shot is stable-ready again.
+    // Losing readiness mid-volley pauses feeding on this very loop — the feed path stops now, not
+    // next loop; PAUSED auto-resumes the volley once the shot is stable-ready again.
     if (!updateReadiness().rawReady()) {
       enterPause(States.SHOOT);
+      holdPauseOutputs();
       return;
     }
 
@@ -236,6 +252,7 @@ public class Shooting extends Command {
     }
     if (!updateReadiness().rawReady()) {
       enterPause(States.RETRACT);
+      holdPauseOutputs();
       return;
     }
 
@@ -262,22 +279,29 @@ public class Shooting extends Command {
   }
 
   /**
+   * The outputs every paused loop holds: drum and hood keep driving to target so the volley can
+   * resume the moment readiness returns, only the feed path stops; a paused RETRACT keeps pulling
+   * the intake back (the intake never re-extends mid-volley). Runs both from paused() and on the
+   * exact loop a pause is entered, so losing readiness stops the feed path that same loop.
+   */
+  private void holdPauseOutputs() {
+    prepareShooter();
+    IntakeRoller.mInstance.setV(0);
+    Indexer.mInstance.setV(0);
+    Feeder.mInstance.setV(0);
+    if (stateAfterPause == States.RETRACT) {
+      IntakeDeploy.mInstance.setPositionCentimeter(
+          ShootingConstants.INTAKE_RETRACT_POSITION_CM.getAsDouble(), 80, 1000, 0);
+    }
+  }
+
+  /**
    * Hold the shooter on target with the feed path stopped until the shot is stable-ready again,
    * then resume the remembered feeding state. A pause never resets the volley — the retract timer
    * resumes mid-count and a paused RETRACT never re-triggers the retract.
    */
   private void paused() {
-    // Keep driving the drum and hood to target so the volley can resume the moment readiness
-    // returns; only the feed path pauses.
-    prepareShooter();
-    IntakeRoller.mInstance.setV(0);
-    Indexer.mInstance.setV(0);
-    Feeder.mInstance.setV(0);
-    // A paused RETRACT keeps pulling the intake back; the intake never re-extends mid-volley.
-    if (stateAfterPause == States.RETRACT) {
-      IntakeDeploy.mInstance.setPositionCentimeter(
-          ShootingConstants.INTAKE_RETRACT_POSITION_CM.getAsDouble(), 80, 1000, 0);
-    }
+    holdPauseOutputs();
 
     if (updateReadiness().stableReady()) {
       if (retractTimerStarted) {
@@ -312,6 +336,19 @@ public class Shooting extends Command {
       case PAUSED -> OperatorStatus.report(OperatorStatus.Action.WAITING_RECOVERY);
       case UNJAM -> OperatorStatus.report(OperatorStatus.Action.CLEARING_JAM);
     }
+    // And the panel's feed decision comes from this command's own evaluation, so the dashboard
+    // can never drift from the control loop. UNJAM reports nothing: the CLEARING_JAM action
+    // already overrides the panel to blocked.
+    switch (state) {
+      case SHOOT, RETRACT -> OperatorStatus.reportFeedDecision(true, ShotReadiness.REASON_NONE);
+      case SPIN_UP, PAUSED -> {
+        if (lastEvaluation != null) {
+          OperatorStatus.reportFeedDecision(
+              lastEvaluation.stableReady(), ShotReadiness.waitingBlockReason(lastEvaluation));
+        }
+      }
+      case UNJAM -> {}
+    }
     Logger.recordOutput("Shooting/state", state.toString());
     Logger.recordOutput(
         "Shooting/stableReady", lastEvaluation != null && lastEvaluation.stableReady());
@@ -324,6 +361,7 @@ public class Shooting extends Command {
 
   @Override
   public void end(boolean interrupted) {
+    OperatorStatus.clearFeedDecision();
     Drum.mInstance.setVelocityRotPerSec(DrumConstants.StowVelocity);
     Hood.mInstance.setPositionRot(0);
     IntakeRoller.mInstance.stop();
