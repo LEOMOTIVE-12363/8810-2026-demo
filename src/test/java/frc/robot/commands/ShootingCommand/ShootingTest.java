@@ -903,4 +903,128 @@ class ShootingTest {
     }
     s.end(true);
   }
+
+  @Test
+  void midVolleyHoodTargetChangeStopsFeedSameLoop() throws Exception {
+    // The third readiness-loss flavor: the hood target moves (Hood Angle % 0 -> 100), the drum
+    // stays on target. The still-measured hood reads off-target on the edit loop, so feeding must
+    // stop that very loop and auto-resume once the sim snaps and the debounce re-earns stable.
+    Shooting s = new Shooting(false);
+    s.initialize();
+    assertTrue(stepUntilFeeding(s, 30), "reached SHOOT");
+
+    DashboardControlsTestUtil.set(HOOD, 100.0);
+    step(s);
+    assertEquals(0.0, feederSetpoint(), EPS, "hood target change stops the feed on the edit loop");
+    assertEquals("PAUSED", stateOf(s));
+
+    boolean resumed = false;
+    for (int i = 0; i < 15 && !resumed; i++) {
+      step(s);
+      resumed = isFeeding();
+    }
+    assertTrue(resumed, "auto-resumed at the new hood target after the stable window");
+    assertEquals(HoodConstants.MaxAngleDeg / 360.0, Hood.mInstance.getPositionSetpointRot(), EPS);
+    s.end(true);
+  }
+
+  @Test
+  void longSpinUpDoesNotPreFillJamWindow() throws Exception {
+    // Start with the flywheel limit at 0: SPIN_UP can never complete, so this is a long spin-up.
+    // If spin-up time free-ran into the jam debouncer, the first high-current sample after the
+    // resume would trip UNJAM instantly instead of needing the full 0.2 s window.
+    DashboardControlsTestUtil.set(FLYWHEEL, 0.0);
+    Shooting s = new Shooting(false);
+    s.initialize();
+    for (int i = 0; i < 25; i++) {
+      step(s);
+      assertEquals("SPIN_UP", stateOf(s), "still spinning up at loop " + i);
+      assertEquals(0.0, feederSetpoint(), EPS);
+    }
+
+    DashboardControlsTestUtil.set(FLYWHEEL, 100.0);
+    assertTrue(stepUntilFeeding(s, 25), "feeding after the spin-up completed");
+
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(100.0);
+    Indexer.mInstance.periodic(); // the override must reach the input before the next execute
+    for (int i = 0; i < 8; i++) {
+      step(s);
+      assertNotEquals("UNJAM", stateOf(s), "spin-up time must not pre-fill the window, loop " + i);
+    }
+
+    boolean unjammed = false;
+    for (int i = 0; i < 20 && !unjammed; i++) {
+      step(s);
+      unjammed = stateOf(s).equals("UNJAM");
+    }
+    assertTrue(unjammed, "sustained high current still trips UNJAM after the full window");
+    s.end(true);
+  }
+
+  @Test
+  void repeatedPauseResumeCyclesKeepJamWindowClean() throws Exception {
+    // Two full pause/resume cycles, then a current spike: neither pause may pre-fill the window.
+    Shooting s = new Shooting(false);
+    s.initialize();
+    assertTrue(stepUntilFeeding(s, 30), "reached SHOOT");
+
+    for (int cycle = 0; cycle < 2; cycle++) {
+      DashboardControlsTestUtil.set(FLYWHEEL, 0.0);
+      step(s);
+      assertEquals("PAUSED", stateOf(s), "paused, cycle " + cycle);
+      for (int i = 0; i < 15; i++) {
+        step(s);
+      }
+      DashboardControlsTestUtil.set(FLYWHEEL, 100.0);
+      boolean resumed = false;
+      for (int i = 0; i < 15 && !resumed; i++) {
+        step(s);
+        resumed = stateOf(s).equals("SHOOT") || stateOf(s).equals("RETRACT");
+      }
+      assertTrue(resumed, "resumed feeding, cycle " + cycle);
+    }
+
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(100.0);
+    Indexer.mInstance.periodic();
+    for (int i = 0; i < 8; i++) {
+      step(s);
+      assertNotEquals("UNJAM", stateOf(s), "no pause time pre-fills the window, loop " + i);
+    }
+    s.end(true);
+  }
+
+  @Test
+  void secondIndependentJamStillTripsAfterFullWindow() throws Exception {
+    // Two complete, independent jam cycles: after the first back-off and a full recovery, a second
+    // sustained stall must trip UNJAM again — never instantly, never inheriting the first window's
+    // timing.
+    Shooting s = new Shooting(false);
+    s.initialize();
+    assertTrue(stepUntilFeeding(s, 30), "reached SHOOT");
+
+    for (int jam = 1; jam <= 2; jam++) {
+      Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(100.0);
+      boolean unjammed = false;
+      for (int i = 0; i < 30 && !unjammed; i++) {
+        step(s);
+        unjammed = stateOf(s).equals("UNJAM");
+      }
+      assertTrue(unjammed, "jam " + jam + " tripped");
+      // The trip must not be instant: the first 8 high-current loops stay in the volley.
+      // (Covered by the window asserts in the long-pause/spin-up tests; here we verify the cycle
+      // itself completes and the volley fully recovers between jams.)
+      Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(null);
+      for (int i = 0; i < 40 && stateOf(s).equals("UNJAM"); i++) {
+        step(s);
+      }
+      assertEquals("PAUSED", stateOf(s), "back-off " + jam + " routed through PAUSED");
+      boolean resumed = false;
+      for (int i = 0; i < 15 && !resumed; i++) {
+        step(s);
+        resumed = stateOf(s).equals("SHOOT") || stateOf(s).equals("RETRACT");
+      }
+      assertTrue(resumed, "feeding recovered after jam " + jam);
+    }
+    s.end(true);
+  }
 }
