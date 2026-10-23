@@ -103,3 +103,37 @@ both. Full `./gradlew build`: 125 tests, 0 failures; simulateJava smoke
 clean (loop overruns trace to maple-sim physics, as before). Not verified
 on the real robot: actual motor output behavior while disabled, handoff
 feel, and disabled-period key semantics.
+
+## Revision 2026-10-24 — recompute must run in execute(), not initialize()
+
+Codex's recheck of f553950 (8 cases, 6 passed) reproduced one remaining
+handoff defect on two paths: port 0 holds X (Manual) or A
+(`Shooting(true)`), port 1 connects already holding LB → the feeder reads
+0 V until LB is re-pressed. Cause: the reverse recompute ran in
+`InstantCommand.initialize()`, which fires synchronously at schedule time
+during the button-loop poll; the outgoing shooting command is cancelled
+later, in the command-execution phase (`onlyWhile` → `isFinished`), and its
+`end()` zeroes the feeder/indexer/roller after the new owner's write.
+
+Fix: the reverse one-shots are now `FunctionalCommand`s whose `execute()`
+performs the same `applyReverseFeedDesired()` recompute. Commands scheduled
+this loop iterate after long-running ones, so the write lands after the
+outgoing command's `end()` in the same scheduler loop. No binding-order
+shuffle, no requirements (the rejected runEnd approach stays rejected), and
+the deliberately preserved same-pad Shooting-overwrites-reverse conflict is
+unchanged: the press still writes once and the next Shooting loop
+overwrites it.
+
+Tests: `DriverControlsIntegrationAcceptanceTest` gained
+`acceptanceTakeoverFromManualKeepsNewOwnersReverse` and
+`acceptanceTakeoverFromCurrentFeedKeepsNewOwnersReverse` (ported from
+Codex's failing pair, extended to assert indexer and intake-roller requests
+alongside the feeder at handover, after one held second, and after a
+re-press). Negative control (fix stashed): both fail on the old code, the
+8 pre-existing integration tests still pass. The class also gained an
+`@AfterAll` that unregisters and nulls `Drive.mInstance`, the hygiene
+ShootingTest's null-assertion relies on (pre-existing cross-class ordering
+sensitivity). Full-tree `./gradlew build`: 176 tests, 0 failures (includes
+the parallel LED session's uncommitted WIP tests; committed tree carries
+155 + these 2). simulateJava smoke: clean startup; loop-overrun warnings
+trace to maple-sim physics as before. Not verified on the real robot.
