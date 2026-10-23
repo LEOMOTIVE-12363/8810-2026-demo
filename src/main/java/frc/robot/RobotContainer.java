@@ -7,6 +7,7 @@ import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.FunctionalCommand;
 import frc.robot.commands.DriveCommands.DriveCommands;
 import frc.robot.commands.HoodZeroCommand.HoodZeroCommand;
 import frc.robot.commands.IntakeCommand.IntakeCommand;
@@ -208,12 +209,26 @@ public class RobotContainer {
   // mid-hold, and a release/disconnect while disabled was silently dropped by the scheduler,
   // latching the reverse request past re-enable. The release binding runs while disabled so cleanup
   // always lands; the press binding does not, so nothing starts while disabled.
+  //
+  // The recompute must run in execute(), not initialize() (2026-10-24 acceptance fix): initialize
+  // fires synchronously at schedule time, i.e. during the button-loop poll — before the execution
+  // phase where an outgoing priority-lost Shooting/Manual hits isFinished() and its end() zeroes
+  // the feeder/indexer/roller. Commands scheduled this loop iterate after long-running ones, so an
+  // execute()-phase write lands after those end() cleanups and a takeover LB survives; a poll-phase
+  // write gets clobbered (feeder read 0 V until re-press).
   private Command reverseFeedPressCommand() {
-    return Commands.runOnce(this::applyReverseFeedDesired);
+    return reverseFeedApplyCommand(false);
   }
 
   private Command reverseFeedReleaseCommand() {
-    return Commands.runOnce(this::applyReverseFeedDesired).ignoringDisable(true);
+    return reverseFeedApplyCommand(true);
+  }
+
+  /** One-shot that applies the reverse recompute in execute() — see the note above. */
+  private Command reverseFeedApplyCommand(boolean runsWhenDisabled) {
+    return new FunctionalCommand(
+            () -> {}, this::applyReverseFeedDesired, interrupted -> {}, () -> true)
+        .ignoringDisable(runsWhenDisabled);
   }
 
   /**

@@ -1,5 +1,6 @@
 package frc.robot.util;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import edu.wpi.first.hal.HAL;
@@ -10,6 +11,8 @@ import frc.robot.RobotContainer;
 import frc.robot.subsystems.Feeder.Feeder;
 import frc.robot.subsystems.Indexer.Indexer;
 import frc.robot.subsystems.IntakeRoller.IntakeRoller;
+import frc.robot.subsystems.drive.Drive;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +29,8 @@ import org.junit.jupiter.api.Test;
  * so the shared scheduler stays harmless cross-class chatter.
  */
 class DriverControlsIntegrationAcceptanceTest {
+  private static final int BUTTON_A = 1;
+  private static final int BUTTON_X = 3;
   private static final int BUTTON_LB = 5;
   private static final int AXIS_RIGHT_TRIGGER = 3;
   private static final double EPS = 1e-6;
@@ -60,6 +65,20 @@ class DriverControlsIntegrationAcceptanceTest {
     DriverStationSim.setDsAttached(false);
     DriverStationSim.notifyNewData();
     zeroReversePath();
+  }
+
+  @AfterAll
+  static void tearDownClass() {
+    // This class constructs a RobotContainer, which sets Drive.mInstance; ShootingTest asserts the
+    // singleton is null, so hand the JVM back clean (same hygiene as TeleopIntegrationTest).
+    CommandScheduler scheduler = CommandScheduler.getInstance();
+    scheduler.cancelAll();
+    if (Drive.mInstance != null) {
+      scheduler.unregisterSubsystem(Drive.mInstance);
+      Drive.mInstance = null;
+    }
+    DriverStationSim.resetData();
+    DriverStationSim.notifyNewData();
   }
 
   private static void zeroReversePath() {
@@ -207,6 +226,61 @@ class DriverControlsIntegrationAcceptanceTest {
     DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
     loop();
     assertEquals(-3, feederVolts(), EPS, "a fresh press after re-enable starts the eject");
+  }
+
+  @Test
+  void acceptanceTakeoverFromManualKeepsNewOwnersReverse() {
+    // Port 0 holds X (Manual running); port 1 connects already holding LB. The outgoing Manual's
+    // end() zeroes the feeder/indexer/roller in the same loop — the new owner's reverse must still
+    // win, with no re-press.
+    acceptanceTakeoverFromShootingKeepsNewOwnersReverse(BUTTON_X);
+  }
+
+  @Test
+  void acceptanceTakeoverFromCurrentFeedKeepsNewOwnersReverse() {
+    // Same takeover, but the outgoing command is A = Shooting(true) (current-feed).
+    acceptanceTakeoverFromShootingKeepsNewOwnersReverse(BUTTON_A);
+  }
+
+  private void acceptanceTakeoverFromShootingKeepsNewOwnersReverse(int fullPadButton) {
+    connected(DriverControls.FULL_PORT, true);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.FULL_PORT, fullPadButton, true);
+    loop();
+    loop();
+    connected(DriverControls.DEMO_PORT, true);
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    loop();
+    assertEquals(DriverControls.DEMO_PORT, controls.activePort(), "port 1 takes over");
+    double[] atHandover = reversePathVolts();
+    for (int i = 0; i < 50; i++) {
+      SimHooks.stepTiming(0.02);
+      loop();
+    }
+    double[] afterOneSecond = reversePathVolts();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, false);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    double[] afterRepress = reversePathVolts();
+    assertAll(
+        () ->
+            assertEquals(
+                -3, atHandover[0], EPS, "feeder: outgoing command's end() must not win the loop"),
+        () -> assertEquals(-3, atHandover[1], EPS, "indexer: same handoff"),
+        () -> assertEquals(-3, atHandover[2], EPS, "intake roller: same handoff"),
+        () -> assertEquals(-3, afterOneSecond[0], EPS, "feeder: reverse retained while LB held"),
+        () -> assertEquals(-3, afterOneSecond[1], EPS, "indexer: retained while held"),
+        () -> assertEquals(-3, afterOneSecond[2], EPS, "intake roller: retained while held"),
+        () -> assertEquals(-3, afterRepress[0], EPS, "feeder: re-press also works"),
+        () -> assertEquals(-3, afterRepress[1], EPS, "indexer: re-press"),
+        () -> assertEquals(-3, afterRepress[2], EPS, "intake roller: re-press"));
+  }
+
+  /** Feeder, indexer, intake roller latched voltage requests, in that order. */
+  private static double[] reversePathVolts() {
+    return new double[] {feederVolts(), indexerVolts(), rollerVolts()};
   }
 
   @Test
