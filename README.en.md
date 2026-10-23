@@ -49,7 +49,7 @@ Driver Station port **1 takes priority over 0** for both driving and every butto
 | Flywheel speed-limit adjustment | Unbound | D-pad up / down |
 | Reset simulated field (no real-robot action) | Unbound | Start |
 
-LT extends the intake and runs collection; release stops collection without retracting. D-pad left retracts and homes against the inward stop. LB/RT reverse is momentary: pressing sets the intake roller, indexer, and feeder (RT: indexer/feeder only) reversing; release, disconnect, or loss of controller priority zeroes them. The bindings take no subsystem ownership, so a concurrently running shooting loop overwrites the reverse writes (original behavior, intentionally unchanged). Elastic displays both connection states and the active port (`Active Controller`, `-1` when neither is connected).
+LT extends the intake and runs collection; release stops collection without retracting. D-pad left retracts and homes against the inward stop. LB/RT reverse is momentary: the reverse outputs are recomputed from the active pad's held state — while the controlling pad holds LB the intake roller, indexer, and feeder reverse (RT: indexer/feeder only); they zero on release, disconnect, priority loss when the taking-over pad is not holding the same key, or while the robot is disabled. The bindings take no subsystem ownership, so a concurrently running shooting loop overwrites the reverse writes (original behavior, intentionally unchanged). Elastic displays both connection states and the active port (`Active Controller`, `-1` when neither is connected).
 
 ## Operator panel & feed gating
 
