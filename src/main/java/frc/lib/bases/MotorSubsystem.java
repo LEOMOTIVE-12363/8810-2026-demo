@@ -80,6 +80,11 @@ public class MotorSubsystem extends SubsystemBase {
     return inputs.currentSetpointAmps;
   }
 
+  /** Active open-loop voltage request in volts; meaningful only in VOLTAGE mode, zero otherwise. */
+  public double getVoltageSetpoint() {
+    return inputs.voltageSetpoint;
+  }
+
   /** Test-only: forces the reported stator current; pass null to clear. */
   public void setStatorCurrentAmpsOverrideForTest(Double ampsOrNull) {
     statorCurrentAmpsOverrideForTest = ampsOrNull;

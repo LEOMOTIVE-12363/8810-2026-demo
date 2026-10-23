@@ -61,3 +61,45 @@ firing, full-only isolation on port 1, release/disconnect/priority-loss
 cancellation, disable cancellation, one-shot homing cancellation) and the
 full `./gradlew build` + `simulateJava` smoke. Not verified on the real
 robot: real DS port assignment, handoff feel, and eject effect on hardware.
+
+## Revision 2026-10-23 — reverse recompute + disabled-safe cleanup
+
+Codex's acceptance of dcdfb1e (real RobotContainer + CommandScheduler +
+DriverStationSim + simulated mechanisms) reproduced two defects in the
+original LB/RT wiring:
+
+1. **Cleanup lost while disabled.** `onRelease` scheduled a plain `runOnce`
+   via `trigger.onFalse`; the 2026 scheduler silently refuses commands that
+   don't `runWhenDisabled`, so a release/disconnect during disable consumed
+   the falling edge without running the zeroing — after re-enable the
+   simulated Feeder still held −3 V.
+2. **Handoff clobbering.** Press and release were separate scheduled
+   commands; on a same-loop source switch the new owner's press ran first
+   and the old owner's release then zeroed the request, so the active pad's
+   held LB stopped feeding until re-pressed (both directions reproduced).
+
+Fix (keeps the deliberately preserved Shooting-vs-reverse conflict and all
+momentary semantics): reverse outputs are now a pure function of held state.
+`DriverControls.isHeldByActiveController(Action)` reports whether the
+controlling pad holds LB (full) / RT (local); `RobotContainer`'s press and
+release bindings both call `applyReverseFeedDesired()`, which writes
+Indexer/Feeder −3 V when either is held (IntakeRoller −3 V only on full),
+zero otherwise, and forces all-clear while disabled. The press command is a
+plain `runOnce` (never starts while disabled); the release command adds
+`ignoringDisable(true)` (cleanup always lands). Both callbacks compute the
+same truth, so execution order no longer matters, and overlapping LB/RT
+releases no longer zero each other's channels. `MotorSubsystem` gained
+`getVoltageSetpoint()` for request-level assertions.
+
+Verification: 12 new acceptance tests (4 scheduler-level
+`DriverControlsAcceptanceTest`, 8 integration
+`DriverControlsIntegrationAcceptanceTest` driving the real container and the
+simulated Feeder/Indexer/IntakeRoller) — both handoff directions keep −3 V,
+disabled release/disconnect clear the request, pressing while disabled does
+not start a reverse, normal release and enabled disconnect still stop, and
+LB/RT overlap survives both release orders. Negative control (fix stashed):
+the 6 behavioral tests fail on the old wiring; the 2 semantic pins pass on
+both. Full `./gradlew build`: 125 tests, 0 failures; simulateJava smoke
+clean (loop overruns trace to maple-sim physics, as before). Not verified
+on the real robot: actual motor output behavior while disabled, handoff
+feel, and disabled-period key semantics.

@@ -49,6 +49,20 @@ public final class DriverControls {
     return DriverStation.isJoystickConnected(FULL_PORT) ? FULL_PORT : -1;
   }
 
+  /**
+   * True when the controller currently in control is holding this action. Full-only actions only
+   * count while the full controller has control. Cleanup code uses this to recompute outputs after
+   * any edge, so a release from a source that just lost control never zeroes an action the new
+   * controller is still holding.
+   */
+  public boolean isHeldByActiveController(Action action) {
+    int port = activePort();
+    if (port < 0 || (action.fullOnly && port == DEMO_PORT)) {
+      return false;
+    }
+    return action.pressed.test(controllers[port]);
+  }
+
   public double leftX() {
     return axis(XboxController::getLeftX);
   }
@@ -78,7 +92,10 @@ public final class DriverControls {
    * Runs the command once when the hold ends — a normal release, a disconnect, or a priority loss
    * all make the gated trigger go false. Unlike {@link #onPress}/{@link #whileHeld} the command is
    * NOT wrapped in {@code onlyWhile}: the press gate has already gone false by the time this fires,
-   * and the cleanup must run exactly then.
+   * and the cleanup must run exactly then. Note the scheduler silently drops commands that do not
+   * run when disabled (WPILib {@code CommandScheduler.schedule}), so a cleanup that must land
+   * during a disable — like clearing a latched motor request — needs {@code ignoringDisable(true)}
+   * on the command; the falling edge is consumed either way and is not re-fired on re-enable.
    */
   public void onRelease(Action action, Supplier<Command> command) {
     for (int port = FULL_PORT; port <= DEMO_PORT; port++) {
