@@ -4,6 +4,7 @@ import static frc.robot.util.DashboardControlsTestUtil.FLYWHEEL;
 import static frc.robot.util.DashboardControlsTestUtil.HOOD;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -791,5 +792,115 @@ class ShootingTest {
     OperatorStatus.update();
     assertEquals(Action.IDLE, OperatorStatus.currentAction());
     assertFalse(OperatorStatus.feedAllowed(), "Manual ended, decision cleared");
+  }
+
+  @Test
+  void longPauseThenHighCurrentSpikeDoesNotUnjam() throws Exception {
+    Shooting s = new Shooting(false);
+    s.initialize();
+    assertTrue(stepUntilFeeding(s, 30), "reached SHOOT");
+
+    // Hold a 0.4 s pause: if paused time free-ran into the jam debouncer, the 0.2 s confirmation
+    // window would already be filled when feeding resumes.
+    DashboardControlsTestUtil.set(FLYWHEEL, 0.0);
+    for (int i = 0; i < 20; i++) {
+      step(s);
+    }
+    assertEquals("PAUSED", stateOf(s));
+
+    DashboardControlsTestUtil.set(FLYWHEEL, 100.0);
+    for (int i = 0; i < 15 && !stateOf(s).equals("SHOOT") && !stateOf(s).equals("RETRACT"); i++) {
+      step(s);
+    }
+    String resumed = stateOf(s);
+    assertTrue(resumed.equals("SHOOT") || resumed.equals("RETRACT"), "resumed feeding");
+
+    // Refresh the indexer inputs before the next execute: step() applies the override in the
+    // periodic after execute, so without this the first post-resume jam check would read the
+    // stale low current, feed a clear sample, and hide a free-running debouncer.
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(100.0);
+    Indexer.mInstance.periodic();
+    step(s);
+    assertNotEquals(
+        "UNJAM", stateOf(s), "a single high-current sample after a long pause must not trip UNJAM");
+
+    // The spike falls right back: no jam may ever be confirmed.
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(null);
+    Indexer.mInstance.periodic();
+    for (int i = 0; i < 15; i++) {
+      step(s);
+      assertNotEquals("UNJAM", stateOf(s), "loop " + i);
+    }
+    s.end(true);
+  }
+
+  @Test
+  void longPauseThenSustainedHighCurrentUnjamsOnlyAfterFullWindow() throws Exception {
+    Shooting s = new Shooting(false);
+    s.initialize();
+    assertTrue(stepUntilFeeding(s, 30), "reached SHOOT");
+
+    DashboardControlsTestUtil.set(FLYWHEEL, 0.0);
+    for (int i = 0; i < 20; i++) {
+      step(s);
+    }
+    assertEquals("PAUSED", stateOf(s));
+
+    DashboardControlsTestUtil.set(FLYWHEEL, 100.0);
+    for (int i = 0; i < 15 && !stateOf(s).equals("SHOOT") && !stateOf(s).equals("RETRACT"); i++) {
+      step(s);
+    }
+
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(100.0);
+    Indexer.mInstance.periodic();
+    // The 0.2 s window is ten 0.02 s loops of sustained high current; a debouncer that free-ran
+    // through the pause would trip on the very first loop instead.
+    for (int i = 0; i < 8; i++) {
+      step(s);
+      assertNotEquals("UNJAM", stateOf(s), "the window restarts at the resume, loop " + i);
+    }
+    boolean unjammed = false;
+    for (int i = 0; i < 20 && !unjammed; i++) {
+      step(s);
+      unjammed = stateOf(s).equals("UNJAM");
+    }
+    assertTrue(unjammed, "sustained high current still trips UNJAM after the full window");
+    s.end(true);
+  }
+
+  @Test
+  void postUnjamRecoveryDoesNotRetripInstantly() throws Exception {
+    Shooting s = new Shooting(false);
+    s.initialize();
+    assertTrue(stepUntilFeeding(s, 30), "reached SHOOT");
+
+    // Trip a real UNJAM with sustained high current.
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(100.0);
+    for (int i = 0; i < 30 && !stateOf(s).equals("UNJAM"); i++) {
+      step(s);
+    }
+    assertEquals("UNJAM", stateOf(s));
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(null);
+
+    // Run out the back-off, then the post-unjam stable window, back to feeding.
+    for (int i = 0; i < 40 && stateOf(s).equals("UNJAM"); i++) {
+      step(s);
+    }
+    assertEquals("PAUSED", stateOf(s));
+    for (int i = 0; i < 15 && !stateOf(s).equals("SHOOT") && !stateOf(s).equals("RETRACT"); i++) {
+      step(s);
+    }
+    String resumed = stateOf(s);
+    assertTrue(resumed.equals("SHOOT") || resumed.equals("RETRACT"), "feeding again after unjam");
+
+    // No residual timing from the pre-unjam window may carry over: the first spike after the
+    // recovery must again have to persist for the full debounce.
+    Indexer.mInstance.setStatorCurrentAmpsOverrideForTest(100.0);
+    Indexer.mInstance.periodic();
+    for (int i = 0; i < 8; i++) {
+      step(s);
+      assertNotEquals("UNJAM", stateOf(s), "post-unjam window restarts clean, loop " + i);
+    }
+    s.end(true);
   }
 }
