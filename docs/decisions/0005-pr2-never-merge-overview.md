@@ -1,7 +1,11 @@
 # 0005 — PR #2 (demo → main) stays open forever
 
 - Date: 2026-10-21
-- Status: Accepted
+- Status: Superseded by [0009](0009-close-pr2-overview-use-compare.md) (2026-10-23)
+
+> **Superseded on 2026-10-23 by [0009 — close PR #2, use GitHub Compare](0009-close-pr2-overview-use-compare.md).**
+> PR #2 has been closed (not merged). The branch model is unchanged: `demo`
+> still never merges into `main`. This record is kept for history only.
 
 ## Context
 
