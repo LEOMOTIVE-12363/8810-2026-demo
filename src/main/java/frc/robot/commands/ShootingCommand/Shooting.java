@@ -35,11 +35,15 @@ import org.littletonrobotics.junction.Logger;
  * <p>UNJAM always runs its back-off to completion regardless of readiness — clearing a jam is never
  * suppressed by the not-ready gate — then routes through PAUSED instead of resuming directly, so
  * forward feeding restarts only once the shot is stable-ready again (the drum may have sagged while
- * stalled). The retract timer freezes the moment the back-off starts and the readiness debounce
- * resets at the same time, so unjam time never counts toward the retract delay and the post-unjam
- * shot must re-earn a full stable-ready window — previously a >0.2 s unjam during SHOOT meant an
- * instant RETRACT on resume, and the first ready sample after an unjam meant an instant resume;
- * both behavior changes are deliberate.
+ * stalled). The jam confirmation window only accumulates while feeding: every non-feeding state
+ * (SPIN_UP, PAUSED, UNJAM) keeps feeding the debouncer clear samples, so time spent spinning up,
+ * paused, or backing out a jam never pre-fills the window, and the first high-current sample after
+ * feeding resumes must still persist for the full debounce before UNJAM trips. The retract timer
+ * freezes the moment the back-off starts and the readiness debounce resets at the same time, so
+ * unjam time never counts toward the retract delay and the post-unjam shot must re-earn a full
+ * stable-ready window — previously a >0.2 s unjam during SHOOT meant an instant RETRACT on resume,
+ * and the first ready sample after an unjam meant an instant resume; both behavior changes are
+ * deliberate.
  *
  * <p>Releasing the key still ends the command outright: nothing auto-resumes after end(), and the
  * whileTrue binding re-initializes the command (and the readiness debounce) on the next press.
@@ -62,7 +66,9 @@ public class Shooting extends Command {
   private final boolean isEnergySave;
 
   // Indexer jam detection: stator current must stay above the threshold for the full debounce
-  // time before UNJAM triggers (recreated whenever detection restarts, see isIndexerJammed()).
+  // time before UNJAM triggers, and only feeding loops count — every non-feeding state feeds the
+  // debouncer a clear sample each loop (see holdJamNotDetected()), so spin-up, pause, and back-off
+  // time never pre-fills the confirmation window.
   private Debouncer jamDebouncer;
   // Times the fixed backwards-run of the indexer in UNJAM.
   private final Timer unjamTimer = new Timer();
@@ -131,12 +137,23 @@ public class Shooting extends Command {
   }
 
   /**
-   * Restart jam detection from a clean baseline. The debouncer must be recreated whenever detection
-   * pauses (SPIN_UP, PAUSED, UNJAM): a stale one that last saw "jammed" would re-trip instantly on
-   * the first sample instead of requiring the full debounce time again.
+   * Start jam detection from a clean baseline. Only initialize() needs a fresh debouncer; the
+   * non-feeding states keep the running one re-anchored via holdJamNotDetected().
    */
   private void resetJamDetection() {
     jamDebouncer = new Debouncer(ShootingConstants.INDEXER_JAM_DEBOUNCE_SEC, DebounceType.kRising);
+  }
+
+  /**
+   * Feed the jam debouncer a clear sample without reading the mechanism. A kRising debouncer
+   * re-anchors its timer only on baseline (clear) samples and lets it free-run otherwise, so every
+   * non-feeding state must call this each loop: otherwise time spent spinning up, paused, or
+   * backing out a jam would silently count toward the confirmation window, and the first
+   * high-current sample after feeding resumed would trip UNJAM instantly instead of having to
+   * persist for the full debounce.
+   */
+  private void holdJamNotDetected() {
+    jamDebouncer.calculate(false);
   }
 
   /** True when the indexer stator current has been above the jam threshold for the debounce. */
@@ -173,8 +190,9 @@ public class Shooting extends Command {
   /**
    * Back the stalled fuel out of the indexer, then re-gate through PAUSED: forward feeding resumes
    * only once the shot is stable-ready again. The back-off runs to completion regardless of
-   * readiness — clearing a jam must never be suppressed by the not-ready gate. enterPause restarts
-   * jam detection, so no explicit reset is needed here.
+   * readiness — clearing a jam must never be suppressed by the not-ready gate. Jam detection is
+   * held clear throughout the back-off, so the post-unjam volley starts a fresh confirmation
+   * window.
    */
   private void unjam() {
     // Keep holding the flywheel/hood so shooting resumes immediately after the back-off.
@@ -187,6 +205,8 @@ public class Shooting extends Command {
     // samples — its timer only re-anchors on a baseline sample, so a quiet 0.5 s back-off would
     // otherwise let the first post-unjam ready sample pass the stable window instantly.
     readiness.holdNotReady();
+    // Same for the jam debouncer: the back-off must not pre-fill the next confirmation window.
+    holdJamNotDetected();
 
     if (unjamTimer.hasElapsed(ShootingConstants.UNJAM_DURATION_SEC.getAsDouble())) {
       enterPause(stateAfterUnjam);
@@ -199,6 +219,9 @@ public class Shooting extends Command {
     IntakeRoller.mInstance.setV(0);
     Indexer.mInstance.setV(0);
     Feeder.mInstance.setV(0);
+    // Spin-up is not feeding: keep the jam debouncer anchored, or a long real spin-up would
+    // pre-fill the confirmation window and the first high-current sample would trip UNJAM.
+    holdJamNotDetected();
 
     if (updateReadiness().stableReady()) {
       state = States.SHOOT;
@@ -266,15 +289,14 @@ public class Shooting extends Command {
   /**
    * Freeze the volley exactly where it is: remember the feeding state to resume and freeze the
    * retract timer mid-count (Timer.start() on resume picks the accumulated count back up, so
-   * feeding time during a pause never counts toward the retract delay). Jam detection restarts so a
-   * stale debouncer cannot re-trip instantly on the first sample after the pause.
+   * feeding time during a pause never counts toward the retract delay). Jam detection is not reset
+   * here — paused() keeps feeding the debouncer clear samples, which re-anchors it every loop.
    */
   private void enterPause(States resume) {
     stateAfterPause = resume;
     if (retractTimerStarted) {
       retractTimer.stop();
     }
-    resetJamDetection();
     state = States.PAUSED;
   }
 
@@ -302,6 +324,10 @@ public class Shooting extends Command {
    */
   private void paused() {
     holdPauseOutputs();
+    // Paused time must not count toward the jam confirmation window: keep feeding the debouncer
+    // clear samples so the first high-current reading after the resume still has to persist for
+    // the full debounce before UNJAM trips.
+    holdJamNotDetected();
 
     if (updateReadiness().stableReady()) {
       if (retractTimerStarted) {

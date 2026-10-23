@@ -82,3 +82,34 @@ debounce and the 0.2 s retract delay never expire on the same loop — a jam
 may legitimately trip out of RETRACT, not only SHOOT (the common case on
 the real robot too, since a stall usually appears after the retract).
 Assertions on the feeding state must accept both feeding states.
+
+## Amendment 2 — 2026-10-23 jam window only counts feeding time
+
+Codex re-verification of 252d653 reproduced a residual edge case: after a
+pause of 0.2 s or longer, the first high-current sample after feeding
+resumed tripped UNJAM instantly. Root cause: the kRising `Debouncer`
+re-anchors its timer only on baseline (clear) samples and lets it free-run
+otherwise, and PAUSED fed no samples at all, so paused time silently filled
+the 0.2 s jam confirmation window. The earlier record describing this as a
+"one loop early" bias was wrong — a single post-pause spike tripped the
+unjam, and the same gap existed in SPIN_UP (a real spin-up can take
+seconds) and in the post-unjam recovery.
+
+Fix: the jam confirmation window now accumulates only while feeding. A new
+`holdJamNotDetected()` feeds the debouncer a clear sample every loop in all
+three non-feeding states (`spinUp()`, `paused()`, `unjam()`), the same
+pattern as `ShotReadiness.holdNotReady()`; `enterPause()` no longer
+recreates the debouncer (re-anchoring every paused loop makes that
+redundant), while `initialize()` still starts with a fresh instance. No
+tuning parameters changed (jam threshold 90 A, confirm 0.2 s, unjam 0.5 s,
+ready debounce 0.15 s, retract 0.2 s). Manual has no jam detection and is
+unaffected.
+
+Three regression tests cover it: a single post-pause current spike never
+trips UNJAM; sustained high current after a long pause trips only after
+the full window; and the post-unjam recovery starts with a clean window
+(no residual timing re-trips). Test-ordering note: the current override
+must be followed by a manual `Indexer.periodic()` before the next
+`execute()`, or the first check reads the stale low current, feeds a clear
+sample, and masks a free-running debouncer. Verified by negative control:
+all three tests fail against the pre-fix code (UNJAM on the first loop).
