@@ -71,6 +71,15 @@ public class MotorSubsystem extends SubsystemBase {
     return inputs.statorCurrentAmps.length == 0 ? 0.0 : inputs.statorCurrentAmps[0];
   }
 
+  public MotorIO.ControlMode getControlMode() {
+    return inputs.controlMode;
+  }
+
+  /** Active current request in amps; meaningful only in CURRENT mode, zero otherwise. */
+  public double getCurrentSetpointAmps() {
+    return inputs.currentSetpointAmps;
+  }
+
   /** Test-only: forces the reported stator current; pass null to clear. */
   public void setStatorCurrentAmpsOverrideForTest(Double ampsOrNull) {
     statorCurrentAmpsOverrideForTest = ampsOrNull;

@@ -36,6 +36,7 @@ public interface MotorIO {
 
     public ControlMode controlMode = ControlMode.DISABLED;
     public double voltageSetpoint = 0.0;
+    public double currentSetpointAmps = 0.0;
     public double velocitySetpointRadPerSec = 0.0;
     public double positionSetpointRad = 0.0;
   }

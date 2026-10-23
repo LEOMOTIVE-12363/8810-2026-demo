@@ -13,11 +13,19 @@ import org.littletonrobotics.junction.Logger;
  * Operator-dashboard status: which mechanism action is running, whether feeding is allowed, and the
  * human-readable reason when not.
  *
- * <p>The status comes from command heartbeats ({@link #report}) plus the shared {@link
- * ShotReadiness} evaluation — it reports what the mechanism is actually commanded to do, never
- * guesses from buttons. Reports expire {@value #REPORT_EXPIRY_SEC} seconds after the last
- * heartbeat, so releasing a key, a command interruption, or a disable returns the panel to Idle on
- * its own — no stale status can pin.
+ * <p>The action comes from command heartbeats ({@link #report}); the feed decision comes from the
+ * active shooting command itself ({@link #reportFeedDecision}) — the panel reports what the
+ * mechanism is actually commanded to do, never guesses from buttons, and never recomputes a fixed
+ * shot configuration while a command (e.g. Manual with its own speed/angle) is in charge. Both
+ * expire {@value #REPORT_EXPIRY_SEC} seconds after the last heartbeat, so releasing a key, a
+ * command interruption, or a disable returns the panel to Idle on its own — no stale status can
+ * pin. Commands also call {@link #clearFeedDecision()} from {@code end()} so the panel drops a
+ * finished command's decision immediately instead of waiting out the expiry.
+ *
+ * <p>When no command decision is fresh, the panel falls back to its own {@link ShotReadiness}
+ * evaluation of the dashboard shot configuration as an at-a-glance preview; that fallback uses
+ * instantaneous readiness only, because a fallback debounce could drift from the command's own
+ * debounce timing.
  *
  * <p>The display publishes at 10 Hz from {@code Robot}'s dashboard-publish block via {@link
  * #publish} while control decisions ({@link #update}, {@link #feedAllowed}) run every loop. All
@@ -61,11 +69,18 @@ public final class OperatorStatus {
 
   private static DoubleSupplier clockForTest;
 
-  // The dashboard's own readiness evaluator (same rule as the commands, own debounce state) and
-  // its latest result. Before the first update() the placeholder matches a freshly booted robot:
-  // enabled-or-not, the flywheel is not yet at shot speed.
+  // The dashboard's own readiness evaluator, used only as a fallback preview when no shooting
+  // command is reporting its decision. Before the first update() the placeholder matches a freshly
+  // booted robot: enabled-or-not, the flywheel is not yet at shot speed.
   private static final ShotReadiness shotReadiness = new ShotReadiness();
   private static ShotReadiness.Evaluation latestEvaluation = notReadyPlaceholder();
+
+  // The active shooting command's own feed decision (allowed + reason) and when it was last
+  // reported; NEGATIVE_INFINITY means no command has reported (or the last one ended), so the
+  // fallback evaluation takes over.
+  private static boolean commandFeedAllowed = false;
+  private static String commandFeedBlockedReason = ShotReadiness.REASON_NONE;
+  private static double commandDecisionSec = Double.NEGATIVE_INFINITY;
 
   static {
     resetForTest();
@@ -81,6 +96,25 @@ public final class OperatorStatus {
     lastReportSec[action.ordinal()] = nowSec();
   }
 
+  /**
+   * The active shooting command's own feed decision; call every loop from {@code execute()}. Like
+   * an action report, it expires after {@value #REPORT_EXPIRY_SEC} seconds.
+   */
+  public static void reportFeedDecision(boolean allowed, String blockedReason) {
+    commandFeedAllowed = allowed;
+    commandFeedBlockedReason = blockedReason;
+    commandDecisionSec = nowSec();
+  }
+
+  /** Drops the command decision immediately; call from {@code Command.end()}. */
+  public static void clearFeedDecision() {
+    commandDecisionSec = Double.NEGATIVE_INFINITY;
+  }
+
+  private static boolean hasFreshCommandDecision() {
+    return nowSec() - commandDecisionSec <= REPORT_EXPIRY_SEC;
+  }
+
   /** Effective action: among fresh reports the highest priority wins; nothing fresh is IDLE. */
   public static Action currentAction() {
     double now = nowSec();
@@ -93,10 +127,11 @@ public final class OperatorStatus {
   }
 
   /**
-   * Refreshes the shared readiness evaluation against the dashboard shot configuration (full shot
-   * speed, plus the Hood Angle (%) entry). Reads subsystem inputs and {@link DashboardControls}
-   * only and touches no NetworkTables entries, so it is safe in every mode including replay; call
-   * every robotPeriodic loop.
+   * Refreshes the fallback readiness evaluation against the dashboard shot configuration (full shot
+   * speed, plus the Hood Angle (%) entry); used only while no shooting command reports its own
+   * decision. Reads subsystem inputs and {@link DashboardControls} only and touches no
+   * NetworkTables entries, so it is safe in every mode including replay; call every robotPeriodic
+   * loop.
    */
   public static void update() {
     latestEvaluation =
@@ -104,11 +139,19 @@ public final class OperatorStatus {
             DrumConstants.MaxShotVelocity, DashboardControls.getHoodTargetDeg() / 360.0);
   }
 
-  /** True while feeding is allowed: robot enabled, no jam clearing in progress, shot ready. */
+  /**
+   * True while feeding is allowed: robot enabled, no jam clearing in progress, and the active
+   * shooting command's own decision permitting — or, when no command is running, the fallback
+   * readiness preview.
+   */
   public static boolean feedAllowed() {
-    return !DriverStation.isDisabled()
-        && currentAction() != Action.CLEARING_JAM
-        && latestEvaluation.rawReady();
+    if (DriverStation.isDisabled() || currentAction() == Action.CLEARING_JAM) {
+      return false;
+    }
+    if (hasFreshCommandDecision()) {
+      return commandFeedAllowed;
+    }
+    return latestEvaluation.rawReady();
   }
 
   /** Why feeding is blocked right now, or "" when it is allowed. */
@@ -118,6 +161,9 @@ public final class OperatorStatus {
     }
     if (currentAction() == Action.CLEARING_JAM) {
       return ShotReadiness.REASON_CLEARING_JAM;
+    }
+    if (hasFreshCommandDecision()) {
+      return commandFeedBlockedReason;
     }
     return latestEvaluation.blockReason();
   }
@@ -143,11 +189,14 @@ public final class OperatorStatus {
   }
 
   /**
-   * Clears every remembered heartbeat and restarts the readiness debounce; restore an injected
-   * clock separately (null argument).
+   * Clears every remembered heartbeat and command decision and restarts the readiness debounce;
+   * restore an injected clock separately (null argument).
    */
   public static void resetForTest() {
     Arrays.fill(lastReportSec, Double.NEGATIVE_INFINITY);
+    commandDecisionSec = Double.NEGATIVE_INFINITY;
+    commandFeedAllowed = false;
+    commandFeedBlockedReason = ShotReadiness.REASON_NONE;
     shotReadiness.reset();
     latestEvaluation = notReadyPlaceholder();
   }

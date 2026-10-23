@@ -69,6 +69,7 @@ public class MotorIOSim implements MotorIO {
 
   private ControlMode controlMode = ControlMode.DISABLED;
   private double voltageSetpoint = 0.0;
+  private double currentSetpointAmps = 0.0;
   private double velocitySetpointRadPerSec = 0.0;
   private double positionSetpointRad = 0.0;
 
@@ -126,6 +127,7 @@ public class MotorIOSim implements MotorIO {
     inputs.tempCelsius = 25.0;
     inputs.controlMode = controlMode;
     inputs.voltageSetpoint = voltageSetpoint;
+    inputs.currentSetpointAmps = currentSetpointAmps;
     inputs.velocitySetpointRadPerSec = velocitySetpointRadPerSec;
     inputs.positionSetpointRad = positionSetpointRad;
   }
@@ -137,6 +139,19 @@ public class MotorIOSim implements MotorIO {
     appliedVolts = volts;
     controlMode = ControlMode.VOLTAGE;
     voltageSetpoint = volts;
+    currentSetpointAmps = 0.0;
+    velocitySetpointRadPerSec = 0.0;
+    positionSetpointRad = 0.0;
+  }
+
+  @Override
+  public void setCurrent(double current) {
+    velocityClosedLoop = false;
+    positionClosedLoop = false;
+    appliedVolts = 0.0;
+    controlMode = ControlMode.CURRENT;
+    voltageSetpoint = 0.0;
+    currentSetpointAmps = current;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = 0.0;
   }
@@ -148,6 +163,7 @@ public class MotorIOSim implements MotorIO {
     velocityController.setSetpoint(velocityRadPerSec);
     controlMode = ControlMode.VELOCITY;
     voltageSetpoint = 0.0;
+    currentSetpointAmps = 0.0;
     velocitySetpointRadPerSec = velocityRadPerSec;
     positionSetpointRad = 0.0;
   }
@@ -159,6 +175,7 @@ public class MotorIOSim implements MotorIO {
     positionController.setSetpoint(positionRad);
     controlMode = ControlMode.POSITION;
     voltageSetpoint = 0.0;
+    currentSetpointAmps = 0.0;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = positionRad;
   }
@@ -175,6 +192,7 @@ public class MotorIOSim implements MotorIO {
     appliedVolts = 0.0;
     controlMode = ControlMode.DISABLED;
     voltageSetpoint = 0.0;
+    currentSetpointAmps = 0.0;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = 0.0;
   }
@@ -197,6 +215,7 @@ public class MotorIOSim implements MotorIO {
     velocityController.setSetpoint(velocityRadPerSec);
     controlMode = ControlMode.VELOCITY;
     voltageSetpoint = 0.0;
+    currentSetpointAmps = 0.0;
     velocitySetpointRadPerSec = velocityRadPerSec;
     positionSetpointRad = 0.0;
   }
@@ -209,6 +228,7 @@ public class MotorIOSim implements MotorIO {
     positionController.setSetpoint(positionRad);
     controlMode = ControlMode.POSITION;
     voltageSetpoint = 0.0;
+    currentSetpointAmps = 0.0;
     velocitySetpointRadPerSec = 0.0;
     positionSetpointRad = positionRad;
   }

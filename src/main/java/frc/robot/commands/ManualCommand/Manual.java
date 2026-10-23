@@ -27,6 +27,8 @@ public class Manual extends Command {
 
   private States state;
   private final ShotReadiness readiness = new ShotReadiness();
+  // Latest evaluation; backs the panel feed decision this command reports each loop.
+  private ShotReadiness.Evaluation lastEvaluation;
 
   public Manual() {
     addRequirements(
@@ -46,9 +48,24 @@ public class Manual extends Command {
 
   /** Evaluates the shared readiness rule once against the Manual drum/hood setpoints. */
   private ShotReadiness.Evaluation updateReadiness() {
-    return readiness.update(
-        ManualConstants.ShooterRotpsTunable.getAsDouble(),
-        ManualConstants.HoodDegTunable.getAsDouble() / 360.);
+    lastEvaluation =
+        readiness.update(
+            ManualConstants.ShooterRotpsTunable.getAsDouble(),
+            ManualConstants.HoodDegTunable.getAsDouble() / 360.);
+    return lastEvaluation;
+  }
+
+  /**
+   * The outputs every prepare loop holds: drum and hood keep driving to the Manual setpoints, only
+   * the feed path stays stopped. Runs both from prepare() and on the exact loop SHOOT drops back,
+   * so losing readiness stops the feed path that same loop.
+   */
+  private void holdPrepareOutputs() {
+    Drum.mInstance.setVelocityRotPerSec(ManualConstants.ShooterRotpsTunable.getAsDouble());
+    Hood.mInstance.setPositionRot(ManualConstants.HoodDegTunable.getAsDouble() / 360.);
+    IntakeRoller.mInstance.setV(0);
+    Indexer.mInstance.setV(0);
+    Feeder.mInstance.setV(0);
   }
 
   /**
@@ -58,11 +75,7 @@ public class Manual extends Command {
    * Shooting's SPIN_UP gate.
    */
   private void prepare() {
-    Drum.mInstance.setVelocityRotPerSec(ManualConstants.ShooterRotpsTunable.getAsDouble());
-    Hood.mInstance.setPositionRot(ManualConstants.HoodDegTunable.getAsDouble() / 360.);
-    IntakeRoller.mInstance.setV(0);
-    Indexer.mInstance.setV(0);
-    Feeder.mInstance.setV(0);
+    holdPrepareOutputs();
     if (updateReadiness().stableReady()) {
       state = States.SHOOT;
     }
@@ -70,12 +83,13 @@ public class Manual extends Command {
 
   /**
    * Feeds at the Manual speeds while readiness holds. A single raw-not-ready loop (flywheel limit
-   * at 0%, drum off speed, hood off target) drops back to PREPARE before any motor command, so the
-   * feed path stops immediately; re-entry requires the full debounce again.
+   * at 0%, drum off speed, hood off target) drops back to PREPARE on that very loop, stopping the
+   * feed path immediately; re-entry requires the full debounce again.
    */
   private void shoot() {
     if (!updateReadiness().rawReady()) {
       state = States.PREPARE;
+      holdPrepareOutputs();
       return;
     }
     Drum.mInstance.setVelocityRotPerSec(ManualConstants.ShooterRotpsTunable.getAsDouble());
@@ -104,6 +118,14 @@ public class Manual extends Command {
     // Operator panel heartbeat: PREPARE is spinning up, SHOOT is feeding.
     OperatorStatus.report(
         state == States.SHOOT ? OperatorStatus.Action.FEEDING : OperatorStatus.Action.SPINNING_UP);
+    // And the panel's feed decision comes from this command's own evaluation against the Manual
+    // setpoints, so the dashboard can never drift from the control loop.
+    if (state == States.SHOOT) {
+      OperatorStatus.reportFeedDecision(true, ShotReadiness.REASON_NONE);
+    } else if (lastEvaluation != null) {
+      OperatorStatus.reportFeedDecision(
+          lastEvaluation.stableReady(), ShotReadiness.waitingBlockReason(lastEvaluation));
+    }
   }
 
   @Override
@@ -113,6 +135,7 @@ public class Manual extends Command {
 
   @Override
   public void end(boolean interrupted) {
+    OperatorStatus.clearFeedDecision();
     Drum.mInstance.stop();
     Hood.mInstance.stop();
     IntakeRoller.mInstance.stop();

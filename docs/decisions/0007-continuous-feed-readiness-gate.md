@@ -42,4 +42,43 @@ introduced. New read-only NetworkTables keys under /SmartDashboard
 `Drum Target Speed (rot/s)`, `Drum Actual Speed (rot/s)`,
 `Battery Voltage (V)`, `Controller 1 Connected`) plus the
 `Shooting/stableReady` log key are external interfaces consumed by
-`elastic-layout.json` and AdvantageScope layouts.
+`elastic-layout-1022.json` and AdvantageScope layouts.
+
+## Amendment — 2026-10-23 acceptance rework
+
+Codex acceptance testing of the merged implementation (d750db7) found five
+edge-case failures; all were fixed without changing the approved parameters
+(hood tolerance 7.2°, debounce 0.15 s, retract 0.2 s, unjam 0.5 s):
+
+1. **Stop on the detection loop.** SHOOT/RETRACT previously switched to
+   PAUSED but only wrote the stop outputs on the next loop; the feed path
+   now stops on the very loop readiness is lost (drum/hood still driven),
+   in velocity mode and in the A-button current-feed mode alike. Manual
+   got the same same-loop stop.
+2. **Freeze the retract timer at UNJAM entry**, not when the back-off ends
+   — previously a 0.5 s unjam counted toward the retract delay.
+3. **Reset the readiness debounce at UNJAM entry and hold it not-ready
+   through the back-off** (`ShotReadiness.holdNotReady()`): the WPILib
+   kRising `Debouncer` only re-anchors on a baseline sample and its timer
+   starts at construction, so a quiet 0.5 s back-off otherwise let the
+   first post-unjam ready sample pass the stable window instantly. After
+   the back-off the shot must re-earn a full fresh stable window.
+4. **The panel's feed decision is reported by the active command**
+   (`OperatorStatus.reportFeedDecision`, 150 ms freshness, cleared in
+   `end()`), replacing the fixed full-speed panel-side evaluation that
+   misreported Manual's lower setpoints as blocked. The panel falls back
+   to its own evaluation only when no command decision is fresh; a fresh
+   CLEARING_JAM heartbeat overrides to blocked.
+5. **The stabilizing window is shown, not bypassed**: the panel reflects
+   the command's actual permit, with the dedicated reason
+   `Stabilizing shot` while raw-ready but not yet stable — a separate
+   panel-side debouncer could reset at different times than the command's
+   and drift.
+
+Test-environment note for future tests: in unit tests `Timer`
+(`RobotController.getTime`) and `Debouncer` (`MathSharedStore.getTimestamp`)
+run on clocks that lag each other by one 0.02 s step, so the 0.2 s jam
+debounce and the 0.2 s retract delay never expire on the same loop — a jam
+may legitimately trip out of RETRACT, not only SHOOT (the common case on
+the real robot too, since a stall usually appears after the retract).
+Assertions on the feeding state must accept both feeding states.
