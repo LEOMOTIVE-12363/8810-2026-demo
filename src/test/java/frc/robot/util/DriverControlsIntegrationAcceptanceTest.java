@@ -1,0 +1,251 @@
+package frc.robot.util;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import edu.wpi.first.hal.HAL;
+import edu.wpi.first.wpilibj.simulation.DriverStationSim;
+import edu.wpi.first.wpilibj.simulation.SimHooks;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.robot.RobotContainer;
+import frc.robot.subsystems.Feeder.Feeder;
+import frc.robot.subsystems.Indexer.Indexer;
+import frc.robot.subsystems.IntakeRoller.IntakeRoller;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Integration acceptance for the dual-controller reverse wiring: the real RobotContainer bindings,
+ * the real CommandScheduler, DriverStationSim, and the sim mechanism IO. Asserts on latched motor
+ * REQUESTS (voltage setpoints) — this says nothing about physical motor motion while the robot is
+ * disabled, which needs the real robot.
+ *
+ * <p>The container's bindings register on the default button loop once for the whole JVM. Other
+ * test classes never assert on these motors' voltage requests, and every test here re-zeros them,
+ * so the shared scheduler stays harmless cross-class chatter.
+ */
+class DriverControlsIntegrationAcceptanceTest {
+  private static final int BUTTON_LB = 5;
+  private static final int AXIS_RIGHT_TRIGGER = 3;
+  private static final double EPS = 1e-6;
+
+  private DriverControls controls;
+
+  @BeforeAll
+  static void setUpContainer() {
+    HAL.initialize(500, 0);
+    SimHooks.pauseTiming();
+    DriverStationSim.resetData();
+    DriverStationSim.notifyNewData();
+    new RobotContainer();
+  }
+
+  @BeforeEach
+  void setUp() {
+    CommandScheduler.getInstance().cancelAll();
+    DriverStationSim.resetData();
+    DriverStationSim.setDsAttached(true);
+    DriverStationSim.setEnabled(true);
+    loop();
+    zeroReversePath();
+    controls = new DriverControls();
+  }
+
+  @AfterEach
+  void tearDown() {
+    CommandScheduler.getInstance().cancelAll();
+    DriverStationSim.resetData();
+    DriverStationSim.setEnabled(false);
+    DriverStationSim.setDsAttached(false);
+    DriverStationSim.notifyNewData();
+    zeroReversePath();
+  }
+
+  private static void zeroReversePath() {
+    Feeder.mInstance.setV(0);
+    Indexer.mInstance.setV(0);
+    IntakeRoller.mInstance.setV(0);
+  }
+
+  private static void loop() {
+    DriverStationSim.notifyNewData();
+    CommandScheduler.getInstance().run();
+  }
+
+  private static void connected(int port, boolean yes) {
+    DriverStationSim.setJoystickIsXbox(port, yes);
+    DriverStationSim.setJoystickAxisCount(port, yes ? 6 : 0);
+    DriverStationSim.setJoystickButtonCount(port, yes ? 10 : 0);
+    DriverStationSim.setJoystickPOVCount(port, yes ? 1 : 0);
+    DriverStationSim.setJoystickPOV(port, 0, -1);
+  }
+
+  private static double feederVolts() {
+    Feeder.mInstance.periodic();
+    return Feeder.mInstance.getVoltageSetpoint();
+  }
+
+  private static double indexerVolts() {
+    Indexer.mInstance.periodic();
+    return Indexer.mInstance.getVoltageSetpoint();
+  }
+
+  private static double rollerVolts() {
+    IntakeRoller.mInstance.periodic();
+    return IntakeRoller.mInstance.getVoltageSetpoint();
+  }
+
+  @Test
+  void acceptanceNormalReleaseAndDisconnectStopReverse() {
+    connected(DriverControls.DEMO_PORT, true);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, feederVolts(), EPS);
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, false);
+    loop();
+    assertEquals(0, feederVolts(), EPS, "a normal release stops the eject");
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    connected(DriverControls.DEMO_PORT, false);
+    loop();
+    assertEquals(0, feederVolts(), EPS, "a mid-hold disconnect stops the eject");
+  }
+
+  @Test
+  void acceptanceTakeoverKeepsNewOwnersReverse() {
+    connected(DriverControls.FULL_PORT, true);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.FULL_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, feederVolts(), EPS);
+    connected(DriverControls.DEMO_PORT, true);
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    loop();
+    assertEquals(DriverControls.DEMO_PORT, controls.activePort());
+    assertEquals(
+        -3,
+        feederVolts(),
+        EPS,
+        "new owner holds LB but the old owner's cleanup overwrote its reverse");
+  }
+
+  @Test
+  void acceptanceFallbackKeepsNewOwnersReverse() {
+    connected(DriverControls.FULL_PORT, true);
+    connected(DriverControls.DEMO_PORT, true);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.FULL_PORT, BUTTON_LB, true);
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, feederVolts(), EPS);
+    connected(DriverControls.DEMO_PORT, false);
+    loop();
+    loop();
+    assertEquals(DriverControls.FULL_PORT, controls.activePort());
+    assertEquals(
+        -3,
+        feederVolts(),
+        EPS,
+        "fallback controller holds LB but the losing source's cleanup overwrote it");
+  }
+
+  @Test
+  void acceptanceDisabledDisconnectClearsReverseBeforeReenable() {
+    connected(DriverControls.DEMO_PORT, true);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, feederVolts(), EPS);
+    DriverStationSim.setEnabled(false);
+    loop();
+    connected(DriverControls.DEMO_PORT, false);
+    loop();
+    DriverStationSim.setEnabled(true);
+    loop();
+    assertEquals(-1, controls.activePort());
+    assertEquals(
+        0,
+        feederVolts(),
+        EPS,
+        "no controller is connected but the reverse request was never cleared");
+  }
+
+  @Test
+  void acceptanceReleaseWhileDisabledClearsReverse() {
+    connected(DriverControls.DEMO_PORT, true);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, feederVolts(), EPS);
+    DriverStationSim.setEnabled(false);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, false);
+    loop();
+    assertEquals(0, feederVolts(), EPS, "a release while disabled must still clear the request");
+    DriverStationSim.setEnabled(true);
+    loop();
+    assertEquals(0, feederVolts(), EPS, "re-enable does not resurrect the eject");
+  }
+
+  @Test
+  void acceptancePressWhileDisabledDoesNotStart() {
+    connected(DriverControls.DEMO_PORT, true);
+    loop();
+    DriverStationSim.setEnabled(false);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(0, feederVolts(), EPS, "a press while disabled must not start the eject");
+    DriverStationSim.setEnabled(true);
+    loop();
+    assertEquals(0, feederVolts(), EPS, "the consumed edge does not fire on re-enable");
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, false);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.DEMO_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, feederVolts(), EPS, "a fresh press after re-enable starts the eject");
+  }
+
+  @Test
+  void acceptanceLocalReverseSurvivesFullReverseRelease() {
+    // Port 0 holds RT (local reverse), adds LB (full reverse), then releases LB: the RT-held
+    // indexer/feeder must keep their request, only the intake roller drops.
+    connected(DriverControls.FULL_PORT, true);
+    loop();
+    DriverStationSim.setJoystickAxis(DriverControls.FULL_PORT, AXIS_RIGHT_TRIGGER, 1.0);
+    loop();
+    assertEquals(-3, indexerVolts(), EPS, "RT runs the local reverse");
+    assertEquals(-3, feederVolts(), EPS);
+    assertEquals(0, rollerVolts(), EPS, "local reverse leaves the roller alone");
+    DriverStationSim.setJoystickButton(DriverControls.FULL_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, rollerVolts(), EPS, "LB extends the reverse to the roller");
+    DriverStationSim.setJoystickButton(DriverControls.FULL_PORT, BUTTON_LB, false);
+    loop();
+    assertEquals(-3, indexerVolts(), EPS, "releasing LB must not kill the RT-held reverse");
+    assertEquals(-3, feederVolts(), EPS);
+    assertEquals(0, rollerVolts(), EPS, "only the LB-owned roller is cleared");
+  }
+
+  @Test
+  void acceptanceFullReverseSurvivesLocalReverseRelease() {
+    // Port 0 holds LB (full reverse), adds RT, then releases RT: the LB-held full reverse must be
+    // untouched.
+    connected(DriverControls.FULL_PORT, true);
+    loop();
+    DriverStationSim.setJoystickButton(DriverControls.FULL_PORT, BUTTON_LB, true);
+    loop();
+    assertEquals(-3, feederVolts(), EPS);
+    DriverStationSim.setJoystickAxis(DriverControls.FULL_PORT, AXIS_RIGHT_TRIGGER, 1.0);
+    loop();
+    assertEquals(-3, feederVolts(), EPS);
+    DriverStationSim.setJoystickAxis(DriverControls.FULL_PORT, AXIS_RIGHT_TRIGGER, 0.0);
+    loop();
+    assertEquals(-3, indexerVolts(), EPS, "releasing RT must not kill the LB-held reverse");
+    assertEquals(-3, feederVolts(), EPS);
+    assertEquals(-3, rollerVolts(), EPS, "the roller belongs to the still-held LB");
+  }
+}

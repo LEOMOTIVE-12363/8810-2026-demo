@@ -151,8 +151,8 @@ public class RobotContainer {
     controls.onPress(Action.RESET_HEADING, this::resetHeadingCommand);
     controls.whileHeld(Action.INTAKE, IntakeCommand::new);
     controls.whileHeld(Action.SHOOT, () -> new Shooting(false));
-    controls.onPress(Action.EJECT, () -> reverseFeedPressCommand(true));
-    controls.onRelease(Action.EJECT, () -> reverseFeedReleaseCommand(true));
+    controls.onPress(Action.EJECT, this::reverseFeedPressCommand);
+    controls.onRelease(Action.EJECT, this::reverseFeedReleaseCommand);
     controls.whileHeld(Action.EJECT, () -> reverseFeedHeartbeatCommand(true));
 
     controls.onPress(
@@ -166,8 +166,8 @@ public class RobotContainer {
                 () -> DashboardControls.adjustFlywheelPercent(-FLYWHEEL_PERCENT_STEP)));
     controls.whileHeld(Action.MANUAL_SHOOT, Manual::new);
     controls.whileHeld(Action.CURRENT_FEED_SHOOT, () -> new Shooting(true));
-    controls.onPress(Action.REVERSE_FEED, () -> reverseFeedPressCommand(false));
-    controls.onRelease(Action.REVERSE_FEED, () -> reverseFeedReleaseCommand(false));
+    controls.onPress(Action.REVERSE_FEED, this::reverseFeedPressCommand);
+    controls.onRelease(Action.REVERSE_FEED, this::reverseFeedReleaseCommand);
     controls.whileHeld(Action.REVERSE_FEED, () -> reverseFeedHeartbeatCommand(false));
     controls.onPress(
         Action.ZERO_OUTWARD,
@@ -200,31 +200,39 @@ public class RobotContainer {
         .ignoringDisable(true);
   }
 
-  // Momentary reverse semantics, restored verbatim from the original pre-DriverControls bindings:
-  // press/release write the motors with NO subsystem ownership, so a concurrently running Shooting
-  // loop overwrites the reverse writes — that documented conflict is intentionally preserved
-  // (2026-10-22 decision). Release, a disconnect, or losing controller priority still zeroes the
-  // motors via the release binding, and the heartbeat drives only the display layers.
-  private Command reverseFeedPressCommand(boolean includeIntake) {
-    return Commands.runOnce(
-        () -> {
-          Indexer.mInstance.setV(-3);
-          Feeder.mInstance.setV(-3);
-          if (includeIntake) {
-            IntakeRoller.mInstance.setV(-3);
-          }
-        });
+  // Momentary reverse semantics, preserved from the original pre-DriverControls bindings: one-shot
+  // motor writes with NO subsystem ownership, so a concurrently running Shooting loop overwrites
+  // them — that documented conflict stays (2026-10-22 decision). Press and release both recompute
+  // the outputs the controller in control is asking for (2026-10-23 acceptance fix): a same-loop
+  // takeover used to run the old source's release after the new source's press and zero the motors
+  // mid-hold, and a release/disconnect while disabled was silently dropped by the scheduler,
+  // latching the reverse request past re-enable. The release binding runs while disabled so cleanup
+  // always lands; the press binding does not, so nothing starts while disabled.
+  private Command reverseFeedPressCommand() {
+    return Commands.runOnce(this::applyReverseFeedDesired);
   }
 
-  private Command reverseFeedReleaseCommand(boolean includeIntake) {
-    return Commands.runOnce(
-        () -> {
-          Indexer.mInstance.setV(0);
-          Feeder.mInstance.setV(0);
-          if (includeIntake) {
-            IntakeRoller.mInstance.setV(0);
-          }
-        });
+  private Command reverseFeedReleaseCommand() {
+    return Commands.runOnce(this::applyReverseFeedDesired).ignoringDisable(true);
+  }
+
+  /**
+   * Write the reverse outputs requested by the controller currently in control: LB = full reverse
+   * (either port), RT = local reverse (full port only). Whatever is not requested is zeroed, so
+   * releasing one reverse action never kills the other, and the same-loop order of a press and a
+   * losing source's release no longer matters. While disabled everything is zeroed — cleanup lands,
+   * starts do not. The heartbeat bindings only drive the display layers.
+   */
+  private void applyReverseFeedDesired() {
+    boolean full = controls.isHeldByActiveController(Action.EJECT);
+    boolean local = controls.isHeldByActiveController(Action.REVERSE_FEED);
+    if (DriverStation.isDisabled()) {
+      full = false;
+      local = false;
+    }
+    Indexer.mInstance.setV(full || local ? -3 : 0);
+    Feeder.mInstance.setV(full || local ? -3 : 0);
+    IntakeRoller.mInstance.setV(full ? -3 : 0);
   }
 
   private Command reverseFeedHeartbeatCommand(boolean includeIntake) {
