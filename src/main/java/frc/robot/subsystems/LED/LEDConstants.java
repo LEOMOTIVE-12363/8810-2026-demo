@@ -30,10 +30,9 @@ public final class LEDConstants {
 
   // ---- Strip geometry (shared by both drivers) -----------------------------------------------
 
-  // Total configured strip length is 3.0 m (user decision 2026-10-24, restoring the original value
-  // after the interim 10.0 m configuration). With the current 20 px/m density, the driver addresses
-  // 60 pixels across the full run.
-  public static final double LENGTH_METERS = 3.0;
+  // Total configured strip length is 10.0 m (user decision 2026-10-24). With the current 20 px/m
+  // density, the driver addresses 200 pixels across the full run.
+  public static final double LENGTH_METERS = 10.0;
 
   // TODO(strip install): pixel density is NOT confirmed. The listing's "720 LEDs/m" counts LED
   // chips, not controllable pixels, and the 5 cm cut marks alone do not prove the per-meter pixel
@@ -79,9 +78,11 @@ public final class LEDConstants {
   // contiguous same-color run, so the per-second frame count is capped by these two constants:
   // worst case = CANDLE_MAX_FRAMES_PER_UPDATE / CANDLE_MIN_UPDATE_INTERVAL_SEC frames/s
   // (default 24 / 0.050 s = 480 frames/s, roughly 6% of the roboRIO bus's 1 Mbit/s). A full
-  // refresh of an all-distinct-pixel frame needs ceil((8 onboard + pixels) / 24) update ticks
-  // (8 + 60 px => 3 ticks => 150 ms). Both are preview values pending real-strip smoothness
-  // checks.
+  // refresh of an all-distinct-pixel frame needs at most ceil((8 onboard + pixels) / 24)
+  // eligible sends (8 + 200 px => 9), each capped at 24 frames. 450 ms is only the theoretical
+  // throttling time at the configured 50 ms interval, not a scheduling upper bound; 20 ms
+  // scheduling typically takes about 540 ms. These tuning values are preview proposals pending
+  // real-strip smoothness checks.
   public static final double CANDLE_MIN_UPDATE_INTERVAL_SEC = 0.050;
   public static final int CANDLE_MAX_FRAMES_PER_UPDATE = 24;
 

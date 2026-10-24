@@ -86,10 +86,11 @@ public class LED extends SubsystemBase {
   private LED() {
     io = LEDIO.create();
 
+    patternChooser.addOption(LEDPattern.OFF.getDashboardName(), LEDPattern.OFF);
     patternChooser.addDefaultOption(
         LEDPattern.MARIGOLD_BRIDGE.getDashboardName(), LEDPattern.MARIGOLD_BRIDGE);
     for (LEDPattern pattern : LEDPattern.values()) {
-      if (pattern != LEDPattern.MARIGOLD_BRIDGE) {
+      if (pattern != LEDPattern.OFF && pattern != LEDPattern.MARIGOLD_BRIDGE) {
         patternChooser.addOption(pattern.getDashboardName(), pattern);
       }
     }

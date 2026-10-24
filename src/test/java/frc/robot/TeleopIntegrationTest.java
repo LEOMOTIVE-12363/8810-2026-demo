@@ -1,6 +1,7 @@
 package frc.robot;
 
 import static frc.robot.util.DashboardControlsTestUtil.FLYWHEEL;
+import static frc.robot.util.DashboardControlsTestUtil.HOOD;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -27,11 +28,13 @@ import frc.robot.simulation.MapleSimArena;
 import frc.robot.subsystems.Drum.Drum;
 import frc.robot.subsystems.Drum.DrumConstants;
 import frc.robot.subsystems.Feeder.Feeder;
+import frc.robot.subsystems.Hood.Hood;
 import frc.robot.subsystems.Indexer.Indexer;
 import frc.robot.subsystems.IntakeDeploy.IntakeDeploy;
 import frc.robot.subsystems.IntakeRoller.IntakeRoller;
 import frc.robot.subsystems.drive.Drive;
 import frc.robot.util.DashboardControlsTestUtil;
+import frc.robot.util.LoggedTunableNumber;
 import frc.robot.util.OperatorStatus;
 import frc.robot.util.ShotReadiness;
 import java.nio.file.Files;
@@ -43,6 +46,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.littletonrobotics.junction.networktables.LoggedNetworkNumber;
 
 /**
  * Full teleop integration: the REAL RobotContainer (its bindings, default drive command, and
@@ -994,6 +998,151 @@ class TeleopIntegrationTest {
     assertTrue(nt.getEntry("/SmartDashboard/Battery Voltage (V)").getDouble(0) > 5.0);
     assertTrue(nt.getEntry("/SmartDashboard/Controller 1 Connected").getBoolean(false));
     release(1, BUTTON_RB);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hood idle dashboard following and command arbitration
+  // ---------------------------------------------------------------------------
+
+  private static void assertHoodPositionTarget(double expectedRot, String message) {
+    assertEquals(expectedRot, Hood.mInstance.getPositionSetpointRot(), EPS, message);
+    assertEquals(MotorIO.ControlMode.POSITION, Hood.mInstance.getControlMode(), message);
+  }
+
+  /** Overrides a tunable through its real NT entry and refreshes the cached robot-side value. */
+  private static void overrideTunable(LoggedTunableNumber tunable, String key, double value)
+      throws Exception {
+    NetworkTableInstance.getDefault().getEntry("/Tuning/" + key).setDouble(value);
+    var field = LoggedTunableNumber.class.getDeclaredField("dashboardNumber");
+    field.setAccessible(true);
+    ((LoggedNetworkNumber) field.get(tunable)).periodic();
+  }
+
+  @Test
+  void idleHoodFollowsDashboardEditsOnNextLoopWithoutStartingFeed() {
+    DashboardControlsTestUtil.set(HOOD, 100.0);
+    stepRobot();
+    Hood.mInstance.periodic();
+
+    assertHoodPositionTarget(
+        25.0 / 360.0, "100% must request 25 degrees while no shot command owns the hood");
+    assertEquals(0.0, feederSetpoint(), EPS, "hood-only dashboard edit must not start feeding");
+    assertEquals(0.0, feederAmps(), EPS, "hood-only dashboard edit must not request feed current");
+
+    DashboardControlsTestUtil.set(HOOD, 40.0);
+    stepRobot();
+    Hood.mInstance.periodic();
+
+    assertHoodPositionTarget(
+        10.0 / 360.0, "40% must request 10 degrees on the following scheduler cycle");
+    assertEquals(
+        0.0, feederSetpoint(), EPS, "the second hood edit must also leave feeding stopped");
+    assertEquals(0.0, feederAmps(), EPS, "the second hood edit must not request feed current");
+  }
+
+  @Test
+  void idleHoodFollowerDoesNotWriteWhileDisabledAndResumesOnSecondEnabledLoop() {
+    DashboardControlsTestUtil.set(HOOD, 0.0);
+    stepRobot();
+    Hood.mInstance.periodic();
+    assertHoodPositionTarget(0.0, "enabled idle hood must apply the initial 0 degree target");
+
+    DriverStationSim.setEnabled(false);
+    DashboardControlsTestUtil.set(HOOD, 100.0);
+    for (int i = 0; i < 5; i++) {
+      stepRobot();
+      Hood.mInstance.periodic();
+      assertEquals(
+          0.0,
+          Hood.mInstance.getPositionSetpointRot(),
+          EPS,
+          "disabled loop " + i + " must not write the pending 25 degree target");
+    }
+
+    DriverStationSim.setEnabled(true);
+    // WPILib starts default commands at loop end: enabled loop one re-registers, loop two executes.
+    stepRobot();
+    Hood.mInstance.periodic();
+    assertHoodPositionTarget(
+        0.0, "the first enabled cycle must retain the old request while the follower registers");
+
+    stepRobot();
+    Hood.mInstance.periodic();
+    assertHoodPositionTarget(
+        25.0 / 360.0, "the second enabled scheduler cycle must apply the pending 25 degree target");
+  }
+
+  @Test
+  void idleHoodFollowerYieldsToManualAndResumesLatestDashboardTarget() throws Exception {
+    double originalManualHoodDeg = ManualConstants.HoodDegTunable.getAsDouble();
+    overrideTunable(ManualConstants.HoodDegTunable, "Manual/HoodDegree", 5.0);
+    try {
+      connect(0);
+      DashboardControlsTestUtil.set(HOOD, 100.0);
+      stepRobot();
+      settle();
+
+      press(0, BUTTON_X);
+      settle();
+      assertHoodPositionTarget(
+          5.0 / 360.0, "Manual must keep its own 5 degree target, not the dashboard's 25 degrees");
+
+      DashboardControlsTestUtil.set(HOOD, 40.0);
+      stepRobot();
+      settle();
+      assertHoodPositionTarget(
+          5.0 / 360.0, "a dashboard edit must not preempt the active Manual command");
+
+      release(0, BUTTON_X);
+      settle();
+      settle();
+      assertHoodPositionTarget(
+          10.0 / 360.0, "after Manual ends, idle following must apply the latest dashboard target");
+    } finally {
+      overrideTunable(ManualConstants.HoodDegTunable, "Manual/HoodDegree", originalManualHoodDeg);
+    }
+  }
+
+  @Test
+  void idleHoodFollowerYieldsToHoodZeroAndResumesAfterInterruption() {
+    connect(0);
+    DashboardControlsTestUtil.set(HOOD, 100.0);
+    stepRobot();
+    settle();
+
+    press(0, BUTTON_Y);
+    settle();
+    assertEquals(
+        -3.0,
+        Hood.mInstance.getVoltageSetpoint(),
+        EPS,
+        "HoodZero must retain its -3 V homing request instead of dashboard position control");
+    assertEquals(
+        MotorIO.ControlMode.VOLTAGE,
+        Hood.mInstance.getControlMode(),
+        "HoodZero must retain open-loop ownership while homing");
+
+    DashboardControlsTestUtil.set(HOOD, 40.0);
+    stepRobot();
+    settle();
+    assertEquals(
+        -3.0,
+        Hood.mInstance.getVoltageSetpoint(),
+        EPS,
+        "a dashboard edit must not interrupt or overwrite HoodZero's homing request");
+    assertEquals(
+        MotorIO.ControlMode.VOLTAGE,
+        Hood.mInstance.getControlMode(),
+        "HoodZero must remain in voltage mode after the dashboard edit");
+
+    CommandScheduler.getInstance().cancelAll();
+    for (int i = 0; i < 3; i++) {
+      stepRobot();
+    }
+    assertHoodPositionTarget(
+        10.0 / 360.0,
+        "after HoodZero ends, idle following must restore the latest 10 degree target");
+    release(0, BUTTON_Y);
   }
 
   // ---------------------------------------------------------------------------
