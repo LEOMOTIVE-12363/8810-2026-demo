@@ -154,15 +154,12 @@
             "y": 512.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Drive Speed Limit (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -185,15 +182,12 @@
             "y": 512.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Turn Speed Limit (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -216,15 +210,12 @@
             "y": 512.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Flywheel Speed Limit (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -247,15 +238,12 @@
             "y": 512.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Hood Angle (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -314,15 +302,12 @@
             "y": 0.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Drive Speed Limit (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -331,15 +316,12 @@
             "y": 0.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Turn Speed Limit (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -348,15 +330,12 @@
             "y": 0.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Flywheel Speed Limit (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -365,15 +344,12 @@
             "y": 0.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Hood Angle (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -479,15 +455,12 @@
             "y": 128.0,
             "width": 256.0,
             "height": 128.0,
-            "type": "Number Slider",
+            "type": "Text Display",
             "properties": {
               "topic": "/Tuning/LED Brightness (%)",
               "period": 0.06,
               "data_type": "double",
-              "min_value": 0.0,
-              "max_value": 100.0,
-              "divisions": 20,
-              "publish_all": false
+              "show_submit_button": true
             }
           },
           {
@@ -629,68 +602,6 @@
             "type": "Text Display",
             "properties": {
               "topic": "/SmartDashboard/Drum Actual Speed (rot/s)",
-              "period": 0.06,
-              "data_type": "double",
-              "show_submit_button": false
-            }
-          },
-          {
-            "title": "Battery (V)",
-            "x": 512.0,
-            "y": 384.0,
-            "width": 256.0,
-            "height": 128.0,
-            "type": "Text Display",
-            "properties": {
-              "topic": "/SmartDashboard/Battery Voltage (V)",
-              "period": 0.06,
-              "data_type": "double",
-              "show_submit_button": false
-            }
-          },
-          {
-            "title": "Controller 1 Connected",
-            "x": 768.0,
-            "y": 384.0,
-            "width": 128.0,
-            "height": 128.0,
-            "type": "Boolean Box",
-            "properties": {
-              "topic": "/SmartDashboard/Controller 1 Connected",
-              "period": 0.06,
-              "data_type": "boolean",
-              "true_color": 4283215696,
-              "false_color": 4294198070,
-              "true_icon": "None",
-              "false_icon": "None"
-            }
-          },
-          {
-            "title": "Controller 0 Connected",
-            "x": 896.0,
-            "y": 384.0,
-            "width": 128.0,
-            "height": 128.0,
-            "type": "Boolean Box",
-            "properties": {
-              "topic": "/SmartDashboard/Controller 0 Connected",
-              "period": 0.06,
-              "data_type": "boolean",
-              "true_color": 4283215696,
-              "false_color": 4294198070,
-              "true_icon": "None",
-              "false_icon": "None"
-            }
-          },
-          {
-            "title": "Active Controller (-1 = none)",
-            "x": 1024.0,
-            "y": 384.0,
-            "width": 256.0,
-            "height": 128.0,
-            "type": "Text Display",
-            "properties": {
-              "topic": "/SmartDashboard/Active Controller",
               "period": 0.06,
               "data_type": "double",
               "show_submit_button": false

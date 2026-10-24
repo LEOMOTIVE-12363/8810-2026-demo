@@ -53,7 +53,7 @@ import org.junit.jupiter.api.Test;
  * <p>Each {@link #stepRobot()} mirrors one Robot loop: DS refresh → scheduler (buttons, subsystem
  * periodics, commands) → operator-panel update → 10 Hz dashboard publish (every 5th loop) → 20 ms
  * clock step → maple-sim physics advance. Dashboard edits go through real NetworkTables entries
- * (the same path an Elastic slider takes).
+ * (the same path an Elastic text input takes).
  *
  * <p>Timing note: inside one scheduler loop the subsystem periodics read the mechanism inputs
  * BEFORE this loop's command writes land, so an output change an edge command makes (end() stops,
@@ -1129,6 +1129,129 @@ class TeleopIntegrationTest {
     }
     assertTrue(intakeRunning, "port 1 intake runs after the takeover");
     setTrigger(1, 0.0);
+  }
+
+  @Test
+  void layoutPercentageControlsAreEditableNumericInputs() throws Exception {
+    JsonNode root = new ObjectMapper().readTree(Files.readString(latestLayout()));
+    List<String> expectedInputs =
+        List.of(
+            "DriverDashboard|Drive Speed Limit (%)|/SmartDashboard/Drive Speed Limit (%)",
+            "DriverDashboard|Turn Speed Limit (%)|/SmartDashboard/Turn Speed Limit (%)",
+            "DriverDashboard|Flywheel Speed Limit (%)|/SmartDashboard/Flywheel Speed Limit (%)",
+            "DriverDashboard|Hood Angle (%)|/SmartDashboard/Hood Angle (%)",
+            "demo|Drive Speed Limit (%)|/SmartDashboard/Drive Speed Limit (%)",
+            "demo|Turn Speed Limit (%)|/SmartDashboard/Turn Speed Limit (%)",
+            "demo|Flywheel Speed Limit (%)|/SmartDashboard/Flywheel Speed Limit (%)",
+            "demo|Hood Angle (%)|/SmartDashboard/Hood Angle (%)",
+            "demo|LED Brightness (%)|/Tuning/LED Brightness (%)");
+    List<String> foundInputs = new ArrayList<>();
+    List<String> invalidInputs = new ArrayList<>();
+    List<String> percentageSliders = new ArrayList<>();
+
+    for (JsonNode tab : root.get("tabs")) {
+      JsonNode containers = tab.get("grid_layout").get("containers");
+      if (containers == null) {
+        continue;
+      }
+      for (JsonNode widget : containers) {
+        String tabName = tab.path("name").asText("");
+        String title = widget.path("title").asText("");
+        String type = widget.path("type").asText("");
+        JsonNode properties = widget.path("properties");
+        String topic = properties.path("topic").asText("");
+        String location = tabName + "/" + title;
+        if (type.equals("Number Slider") && (title.contains("%") || topic.contains("%"))) {
+          percentageSliders.add(location);
+        }
+
+        String key = tabName + "|" + title + "|" + topic;
+        if (!expectedInputs.contains(key)) {
+          continue;
+        }
+        foundInputs.add(key);
+        if (!type.equals("Text Display")) {
+          invalidInputs.add(location + " has type " + type);
+        }
+        if (!properties.path("data_type").asText("").equals("double")) {
+          invalidInputs.add(location + " is not a double input");
+        }
+        if (!properties.path("show_submit_button").isBoolean()
+            || !properties.path("show_submit_button").booleanValue()) {
+          invalidInputs.add(location + " does not explicitly enable its submit button");
+        }
+        for (String sliderProperty :
+            List.of("min_value", "max_value", "divisions", "publish_all")) {
+          if (properties.has(sliderProperty)) {
+            invalidInputs.add(location + " retains slider property " + sliderProperty);
+          }
+        }
+      }
+    }
+
+    List<String> missingInputs = new ArrayList<>(expectedInputs);
+    missingInputs.removeAll(foundInputs);
+    assertTrue(missingInputs.isEmpty(), "missing percentage inputs: " + missingInputs);
+    assertEquals(expectedInputs.size(), foundInputs.size(), "duplicate percentage inputs");
+    assertTrue(
+        invalidInputs.isEmpty(),
+        "percentage controls must be editable double inputs without slider properties: "
+            + invalidInputs);
+    assertTrue(
+        percentageSliders.isEmpty(),
+        "percentage Number Slider widgets remain: " + percentageSliders);
+  }
+
+  @Test
+  void layoutDemoTabRemovesOnlyDiagnostics() throws Exception {
+    JsonNode root = new ObjectMapper().readTree(Files.readString(latestLayout()));
+    JsonNode demoTab = null;
+    for (JsonNode tab : root.get("tabs")) {
+      if (tab.path("name").asText("").equals("demo")) {
+        demoTab = tab;
+        break;
+      }
+    }
+    assertNotNull(demoTab, "demo tab must remain in the layout");
+
+    List<String> actualTitles = new ArrayList<>();
+    for (JsonNode widget : demoTab.get("grid_layout").get("containers")) {
+      actualTitles.add(widget.path("title").asText(""));
+    }
+    for (String removedTitle :
+        List.of(
+            "Battery (V)",
+            "Controller 1 Connected",
+            "Controller 0 Connected",
+            "Active Controller (-1 = none)")) {
+      assertFalse(actualTitles.contains(removedTitle), removedTitle + " must leave the demo tab");
+    }
+
+    List<String> expectedTitles =
+        List.of(
+            "Drive Speed Limit (%)",
+            "Turn Speed Limit (%)",
+            "Flywheel Speed Limit (%)",
+            "Hood Angle (%)",
+            "Effective Drive (%)",
+            "Effective Turn (%)",
+            "Effective Flywheel (%)",
+            "Hood Target (deg)",
+            "Hood Actual Angle (%)",
+            "Hood Actual Angle (deg)",
+            "LED Pattern",
+            "LED Brightness (%)",
+            "LED Idle Effect",
+            "Follow Ball Flow",
+            "LED Effective State",
+            "LED Flow Direction",
+            "LED Driver (PWM/CANdle)",
+            "Robot Action",
+            "Feed Allowed",
+            "Feed Blocked Reason",
+            "Drum Target (rot/s)",
+            "Drum Actual (rot/s)");
+    assertEquals(expectedTitles, actualTitles, "every non-diagnostic demo widget must remain");
   }
 
   @Test
