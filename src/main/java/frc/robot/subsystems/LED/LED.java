@@ -7,7 +7,6 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.util.Color;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Constants;
 import frc.robot.util.BallFlowTracker;
 import frc.robot.util.BallFlowTracker.FlowState;
 import frc.robot.util.DashboardControls;
@@ -64,6 +63,19 @@ public class LED extends SubsystemBase {
   private final LEDSection[] sections = layout.sections();
   private final BallFlowLayer flowLayer = new BallFlowLayer();
 
+  /**
+   * The CANdle onboard thumbnail: the shared render logic evaluated at eight normalized ball-path
+   * positions (a single non-reversed BALL_PATH section, so onboard 0→7 is always intake→shooter —
+   * independent of how the external strip happens to be wired). Ignored by the PWM driver and in
+   * replay.
+   */
+  private final AddressableLEDBuffer onboardBuffer =
+      new AddressableLEDBuffer(LEDConstants.ONBOARD_THUMBNAIL_PIXELS);
+
+  private static final LEDSection[] ONBOARD_LOGICAL_SECTIONS = {
+    new LEDSection(0, LEDConstants.ONBOARD_THUMBNAIL_PIXELS, false, LEDSection.Role.BALL_PATH)
+  };
+
   private double lastTimestampSec = -1.0;
   private LEDPattern lastPattern; // restore intent; baseline for spotting operator theme changes
   private int loopsSinceBoot;
@@ -72,11 +84,7 @@ public class LED extends SubsystemBase {
   private double themeTransitionStartSec;
 
   private LED() {
-    io =
-        switch (Constants.currentMode) {
-          case REAL, SIM -> new LEDIOReal(LEDConstants.PWM_PORT, LEDConstants.LENGTH_PIXELS);
-          case REPLAY -> new LEDIO() {};
-        };
+    io = LEDIO.create();
 
     patternChooser.addDefaultOption(
         LEDPattern.MARIGOLD_BRIDGE.getDashboardName(), LEDPattern.MARIGOLD_BRIDGE);
@@ -216,6 +224,9 @@ public class LED extends SubsystemBase {
     } else {
       renderLegacyPattern(pattern, now, brightnessPercent);
     }
+    // Onboard first so the driver plans with the current thumbnail when it sends the external
+    // frame in the same call chain.
+    io.writeOnboardBuffer(onboardBuffer);
     io.writeBuffer(buffer);
 
     publishStatus(pattern, effect, brightnessPercent, disabled, followFlow, flowTarget);
@@ -251,27 +262,67 @@ public class LED extends SubsystemBase {
   }
 
   /**
-   * Renders a Day of the Dead theme: idle effect (gradient × temporal envelope) per section over
-   * its logical u, then the ball-flow layer blended over the BALL_PATH sections, then the global
-   * brightness (and the optional WS2811 R/G swap) as one final pass over the whole buffer.
+   * Renders a Day of the Dead theme into the external strip's physical sections and into the
+   * onboard thumbnail's logical ball-path section — one shared code path, so theme, clock,
+   * animation phase, ball-flow state and brightness are identical on both (the onboard direction is
+   * fixed by its non-reversed logical section and never depends on the external wiring).
    */
   private void renderThemePattern(
       LEDTheme theme, IdleEffect effect, double now, double brightnessPercent, boolean followFlow) {
     Function<Double, Color> themeColor = transitioningThemeColor(theme, now);
-    int length = buffer.getLength();
-    double brightnessScale = brightnessPercent / 100.0;
+    renderThemeInto(
+        buffer,
+        sections,
+        themeColor,
+        effect,
+        flowLayer,
+        now,
+        brightnessScale(brightnessPercent),
+        followFlow);
+    renderThemeInto(
+        onboardBuffer,
+        ONBOARD_LOGICAL_SECTIONS,
+        themeColor,
+        effect,
+        flowLayer,
+        now,
+        brightnessScale(brightnessPercent),
+        followFlow);
+  }
+
+  private static double brightnessScale(double brightnessPercent) {
+    return brightnessPercent / 100.0;
+  }
+
+  /**
+   * The shared theme render: idle effect (gradient × temporal envelope) per section over its
+   * logical u, then the ball-flow layer blended over the BALL_PATH sections, then the global
+   * brightness as one final pass. The result is logical RGB; the physical strip channel order is
+   * applied by the IO driver. Package-private static so tests can pin the onboard logical rendering
+   * directly.
+   */
+  static void renderThemeInto(
+      AddressableLEDBuffer target,
+      LEDSection[] targetSections,
+      Function<Double, Color> themeColor,
+      IdleEffect effect,
+      BallFlowLayer layer,
+      double now,
+      double brightnessScale,
+      boolean followFlow) {
+    int length = target.getLength();
     if (brightnessScale <= 0.0) {
       // Brightness 0 => fully dark (the flow layer above kept advancing regardless).
       for (int i = 0; i < length; i++) {
-        buffer.setRGB(i, 0, 0, 0);
+        target.setRGB(i, 0, 0, 0);
       }
       return;
     }
     // Pixels not covered by any section would otherwise keep stale colors from a previous frame.
     for (int i = 0; i < length; i++) {
-      buffer.setRGB(i, 0, 0, 0);
+      target.setRGB(i, 0, 0, 0);
     }
-    for (LEDSection section : sections) {
+    for (LEDSection section : targetSections) {
       int start = Math.max(section.startPixel(), 0);
       int end = Math.min(section.startPixel() + section.lengthPixels(), length);
       for (int i = start; i < end; i++) {
@@ -280,29 +331,27 @@ public class LED extends SubsystemBase {
             IdleEffects.scale(
                 IdleEffects.colorAt(effect, themeColor, u, now),
                 IdleEffects.envelope(effect, u, now));
-        buffer.setRGB(
+        target.setRGB(
             i,
             IdleEffects.to255(color.red),
             IdleEffects.to255(color.green),
             IdleEffects.to255(color.blue));
       }
     }
-    if (followFlow && flowLayer.getBlend() > 0.0) {
-      flowLayer.apply(buffer, sections, themeColor);
+    if (followFlow && layer.getBlend() > 0.0) {
+      layer.apply(target, targetSections, themeColor);
     }
     // Global brightness applies once, at the very end. Skipped entirely at full brightness so the
-    // 8-bit round trip cannot round a pixel down by one count.
-    if (brightnessScale < 1.0 || LEDConstants.SWAP_RED_GREEN_FOR_WS2811) {
+    // 8-bit round trip cannot round a pixel down by one count. Physical color-order conversion
+    // (WS2811 R/G swap) happens once more, inside each IO driver — see LEDIO.
+    if (brightnessScale < 1.0) {
       for (int i = 0; i < length; i++) {
-        Color color = IdleEffects.scale(buffer.getLED(i), brightnessScale);
-        double red = color.red;
-        double green = color.green;
-        if (LEDConstants.SWAP_RED_GREEN_FOR_WS2811) {
-          red = color.green;
-          green = color.red;
-        }
-        buffer.setRGB(
-            i, IdleEffects.to255(red), IdleEffects.to255(green), IdleEffects.to255(color.blue));
+        Color color = IdleEffects.scale(target.getLED(i), brightnessScale);
+        target.setRGB(
+            i,
+            IdleEffects.to255(color.red),
+            IdleEffects.to255(color.green),
+            IdleEffects.to255(color.blue));
       }
     }
   }
@@ -333,27 +382,36 @@ public class LED extends SubsystemBase {
 
   /**
    * The five legacy effects with their original per-pattern math (including brightness applied to
-   * the HSV value channel); they ignore themes, sections and the ball-flow layer.
+   * the HSV value channel); they ignore themes, sections and the ball-flow layer. Rendered into the
+   * external buffer and the onboard thumbnail with the same math — the onboard shows the same
+   * pattern at 8-pixel granularity.
    */
   private void renderLegacyPattern(LEDPattern pattern, double now, double brightnessPercent) {
+    renderLegacyInto(buffer, pattern, now, brightnessPercent);
+    renderLegacyInto(onboardBuffer, pattern, now, brightnessPercent);
+  }
+
+  /** Package-private static sibling of {@link #renderLegacyPattern} for direct testing. */
+  static void renderLegacyInto(
+      AddressableLEDBuffer target, LEDPattern pattern, double now, double brightnessPercent) {
     double scale = brightnessPercent / 100.0 * MAX_VALUE;
-    int length = buffer.getLength();
+    int length = target.getLength();
 
     switch (pattern) {
       case OFF -> {
         for (int i = 0; i < length; i++) {
-          buffer.setHSV(i, 0, 0, 0);
+          target.setHSV(i, 0, 0, 0);
         }
       }
       case SOLID -> {
         for (int i = 0; i < length; i++) {
-          buffer.setHSV(i, LEDConstants.SOLID_HUE, MAX_VALUE, (int) scale);
+          target.setHSV(i, LEDConstants.SOLID_HUE, MAX_VALUE, (int) scale);
         }
       }
       case RAINBOW -> {
         int offset = (int) Math.round(now / LEDConstants.RAINBOW_FULL_CYCLE_SEC * 180.0) % 180;
         for (int i = 0; i < length; i++) {
-          buffer.setHSV(i, (i * 180 / length + offset) % 180, MAX_VALUE, (int) scale);
+          target.setHSV(i, (i * 180 / length + offset) % 180, MAX_VALUE, (int) scale);
         }
       }
       case CHASE -> {
@@ -367,7 +425,7 @@ public class LED extends SubsystemBase {
           if (distanceBehindHead >= 0 && distanceBehindHead < LEDConstants.CHASE_TAIL_PIXELS) {
             value = (int) (scale * (1.0 - distanceBehindHead / LEDConstants.CHASE_TAIL_PIXELS));
           }
-          buffer.setHSV(i, LEDConstants.CHASE_HUE, MAX_VALUE, value);
+          target.setHSV(i, LEDConstants.CHASE_HUE, MAX_VALUE, value);
         }
       }
       case BREATHE -> {
@@ -376,7 +434,7 @@ public class LED extends SubsystemBase {
                 (scale
                     * (0.5 - 0.5 * Math.cos(2 * Math.PI * now / LEDConstants.BREATHE_PERIOD_SEC)));
         for (int i = 0; i < length; i++) {
-          buffer.setHSV(i, LEDConstants.BREATHE_HUE, MAX_VALUE, value);
+          target.setHSV(i, LEDConstants.BREATHE_HUE, MAX_VALUE, value);
         }
       }
       default -> {
@@ -427,6 +485,13 @@ public class LED extends SubsystemBase {
     if (!Logger.hasReplaySource()) {
       SmartDashboard.putString("LED Effective State", effectiveState);
       SmartDashboard.putString("LED Flow Direction", direction);
+      SmartDashboard.putString(
+          "LED Driver",
+          hardwareLabel(
+              LEDConstants.HARDWARE,
+              LEDConstants.PWM_PORT,
+              LEDConstants.CANDLE_CAN_ID,
+              LEDConstants.CANDLE_CAN_BUS));
     }
 
     Logger.recordOutput("LED/Pattern", pattern.toString());
@@ -441,5 +506,19 @@ public class LED extends SubsystemBase {
     Logger.recordOutput("LED/SectionLayout", layout.describe());
     Logger.recordOutput("LED/BallFlowDiagnostic", diagnostic);
     Logger.recordOutput("LED/EffectiveState", effectiveState);
+  }
+
+  /**
+   * Read-only label for the "LED Driver" dashboard widget: names the deployed driver scheme and the
+   * wiring knobs it uses, so the operator can see at a glance which hardware the code expects (e.g.
+   * before filling in or verifying the install parameters). Display only — switching stays a
+   * code-constant change.
+   */
+  static String hardwareLabel(
+      LEDConstants.Hardware hardware, int pwmPort, int candleCanId, String candleCanBus) {
+    return switch (hardware) {
+      case PWM -> "PWM (port " + pwmPort + ")";
+      case CANDLE -> "CANdle (CAN " + candleCanId + ", bus " + candleCanBus + ")";
+    };
   }
 }
