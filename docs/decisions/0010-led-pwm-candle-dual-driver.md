@@ -187,3 +187,18 @@ New regressions cover failed reset reinitialization, undetected-reset config and
 display recovery, and mixed-result log throttling. The 10 m test now refreshes
 200 distinct colors under the 24-frame tick cap, and the reversed-wiring sanity
 check compares actual pixel contents. PWM remains untouched as the fallback.
+
+## Revision 6 (2026-10-24, restore 3.0 m configured length)
+
+The user decided to restore the original 3.0 m configured strip length, ending
+the interim 10.0 m configuration from Revision 4. `LENGTH_METERS` returns to
+3.0, so the derived `LENGTH_PIXELS` is 60 again; the 20 px/m density, the
+section map, and the PWM fallback are unchanged.
+
+The 10 m regression test became `configuredThreeMeterStripPaintsAllSixtyPixels`:
+it drives the CANdle with `LEDConstants.LENGTH_PIXELS` pixels, asserts every
+tick stays within the 24-frame budget, and verifies color delivery to all 60
+external pixels within the expected 3-tick full refresh (8 onboard + 60
+external runs). The measured strip length and pixel density still require
+on-strip verification; this revert is a configuration change, not a hardware
+acceptance.

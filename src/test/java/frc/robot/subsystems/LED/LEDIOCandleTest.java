@@ -397,7 +397,7 @@ class LEDIOCandleTest {
   }
 
   @Test
-  void configuredTenMeterStripPaintsAllTwoHundredPixels() {
+  void configuredThreeMeterStripPaintsAllSixtyPixels() {
     FakeTransport transport = new FakeTransport();
     Clock clock = new Clock();
     LEDIOCandle io =
@@ -406,9 +406,11 @@ class LEDIOCandleTest {
             clock,
             LEDConstants.LENGTH_PIXELS,
             LEDConstants.CANDLE_MAX_FRAMES_PER_UPDATE);
-    AddressableLEDBuffer frame = gradientBuffer(200);
+    AddressableLEDBuffer frame = gradientBuffer(LEDConstants.LENGTH_PIXELS);
 
-    for (int tick = 0; tick < 9; tick++) {
+    // 8 onboard + 60 external pixels = 68 distinct runs; at 24 frames per tick a full refresh
+    // converges in ceil(68 / 24) = 3 ticks.
+    for (int tick = 0; tick < 3; tick++) {
       clock.now += STEP_SEC;
       int before = transport.paints.size();
       io.writeBuffer(frame);
@@ -417,8 +419,8 @@ class LEDIOCandleTest {
           "every refresh tick must stay within the frame budget");
     }
 
-    for (int i = 0; i < 200; i++) {
-      assertEquals(packed(frame, i), transport.displayed[i + 8], "10 m strip external pixel " + i);
+    for (int i = 0; i < LEDConstants.LENGTH_PIXELS; i++) {
+      assertEquals(packed(frame, i), transport.displayed[i + 8], "3 m strip external pixel " + i);
     }
   }
 
