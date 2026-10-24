@@ -30,9 +30,10 @@ public final class LEDConstants {
 
   // ---- Strip geometry (shared by both drivers) -----------------------------------------------
 
-  // Total configured strip length is 10.0 m (user decision 2026-10-24). With the current 20 px/m
-  // density, the driver addresses 200 pixels across the full run rather than truncating at 3.0 m.
-  public static final double LENGTH_METERS = 10.0;
+  // Total configured strip length is 3.0 m (user decision 2026-10-24, restoring the original value
+  // after the interim 10.0 m configuration). With the current 20 px/m density, the driver addresses
+  // 60 pixels across the full run.
+  public static final double LENGTH_METERS = 3.0;
 
   // TODO(strip install): pixel density is NOT confirmed. The listing's "720 LEDs/m" counts LED
   // chips, not controllable pixels, and the 5 cm cut marks alone do not prove the per-meter pixel
