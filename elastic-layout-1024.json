@@ -549,6 +549,20 @@
             }
           },
           {
+            "title": "LED Driver (PWM/CANdle)",
+            "x": 1280.0,
+            "y": 512.0,
+            "width": 256.0,
+            "height": 128.0,
+            "type": "Text Display",
+            "properties": {
+              "topic": "/SmartDashboard/LED Driver",
+              "period": 0.06,
+              "data_type": "string",
+              "show_submit_button": false
+            }
+          },
+          {
             "title": "Robot Action",
             "x": 0.0,
             "y": 256.0,
