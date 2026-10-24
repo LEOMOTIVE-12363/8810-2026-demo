@@ -29,7 +29,7 @@ The following capabilities come from the upstream competition code retained on `
 | Branch | Contents |
 |---|---|
 | `main` | Upstream Alphabots 8810 competition-code baseline, retaining this fork's MIT LICENSE, bilingual README, and private-config untracking changes: full autonomous (Choreo trajectories + PathPlanner), vision, tactical commands |
-| `demo` | **LEOMOTIVE demo line** (day-to-day development of this fork): all autonomous programs and vision removed, teleop-only; Elastic sliders directly control Drum speed / Hood angle, plus a dedicated demo tuning tab; addressable LED strip (five Día de los Muertos themes + ball-flow effects for intake/shoot/eject; theme, idle effect and brightness switchable from Elastic and power-cycle persistent; strip section map and animation numbers pending real-strip verification; CANdle is selected as the default driver, with PWM retained as a compile-time fallback; switching is the single `LEDConstants.HARDWARE` constant, while install parameters and real-strip behavior remain to be verified) |
+| `demo` | **LEOMOTIVE demo line** (day-to-day development of this fork): all autonomous programs and vision removed, teleop-only; Elastic numeric input fields directly control Drum speed / Hood angle, plus a dedicated demo tuning tab; addressable LED strip (five Día de los Muertos themes + ball-flow effects for intake/shoot/eject; theme, idle effect and brightness switchable from Elastic and power-cycle persistent; strip section map and animation numbers pending real-strip verification; CANdle is selected as the default driver, with PWM retained as a compile-time fallback; switching is the single `LEDConstants.HARDWARE` constant, while install parameters and real-strip behavior remain to be verified) |
 
 - Demo-line feature changes are **never merged into `main`**; each task lands as its own PR with base `demo`, merged after self-checks pass. The shared Chinese and English READMEs are kept in sync: documentation changes originate on `demo`, then the same text is mirrored to `main` through a separate PR.
 - To inspect the full `demo`-vs-`main` diff, use GitHub Compare: [compare/main...demo](https://github.com/LEOMOTIVE-12363/Alphabots-2026-lm/compare/main...demo) (the former standing-overview PR #2 was closed on 2026-10-23; no open PR is kept for this).
@@ -49,7 +49,7 @@ Driver Station port **1 takes priority over 0** for both driving and every butto
 | Flywheel speed-limit adjustment | Unbound | D-pad up / down |
 | Reset simulated field (no real-robot action) | Unbound | Start |
 
-LT extends the intake and runs collection; release stops collection without retracting. D-pad left retracts and homes against the inward stop. LB/RT reverse is momentary: the reverse outputs are recomputed from the active pad's held state — while the controlling pad holds LB the intake roller, indexer, and feeder reverse (RT: indexer/feeder only); they zero on release, disconnect, priority loss when the taking-over pad is not holding the same key, or while the robot is disabled. The bindings take no subsystem ownership, so a concurrently running shooting loop overwrites the reverse writes (original behavior, intentionally unchanged). Elastic displays both connection states and the active port (`Active Controller`, `-1` when neither is connected).
+LT extends the intake and runs collection; release stops collection without retracting. D-pad left retracts and homes against the inward stop. LB/RT reverse is momentary: the reverse outputs are recomputed from the active pad's held state — while the controlling pad holds LB the intake roller, indexer, and feeder reverse (RT: indexer/feeder only); they zero on release, disconnect, priority loss when the taking-over pad is not holding the same key, or while the robot is disabled. The bindings take no subsystem ownership, so a concurrently running shooting loop overwrites the reverse writes (original behavior, intentionally unchanged).
 
 ## Operator panel & feed gating
 
@@ -59,8 +59,6 @@ The Elastic demo page shows read-only operator status:
 
 - `Robot Action` / `Feed Allowed` / `Feed Blocked Reason`
 - `Drum Target Speed (rot/s)` / `Drum Actual Speed (rot/s)`
-- `Battery Voltage (V)`
-- `Controller 0 Connected` / `Controller 1 Connected` / `Active Controller` (`-1` = neither controller connected)
 
 The gating behavior and panel are not yet verified on the real robot.
 
