@@ -6,16 +6,21 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.wpi.first.hal.AllianceStationID;
 import edu.wpi.first.hal.HAL;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.NetworkTableType;
 import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj.simulation.SimHooks;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import frc.lib.io.MotorIO;
+import frc.lib.rebuilt.ShiftUtil;
 import frc.robot.commands.ManualCommand.ManualConstants;
 import frc.robot.commands.ShootingCommand.ShootingConstants;
 import frc.robot.simulation.MapleSimArena;
@@ -29,6 +34,11 @@ import frc.robot.subsystems.drive.Drive;
 import frc.robot.util.DashboardControlsTestUtil;
 import frc.robot.util.OperatorStatus;
 import frc.robot.util.ShotReadiness;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -984,5 +994,216 @@ class TeleopIntegrationTest {
     assertTrue(nt.getEntry("/SmartDashboard/Battery Voltage (V)").getDouble(0) > 5.0);
     assertTrue(nt.getEntry("/SmartDashboard/Controller 1 Connected").getBoolean(false));
     release(1, BUTTON_RB);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2026-10-24 local acceptance gaps: unbound demo-pad keys, cross-command
+  // interruption, intake takeover, and the Elastic layout key contract.
+  // ---------------------------------------------------------------------------
+
+  @Test
+  void portOneDpadUpDownAndStartTriggerNothing() throws InterruptedException {
+    // D-pad up/down (flywheel nudge) and Start (sim field reset) are full-port-only actions; on
+    // the demo pad none of them may do anything. The flywheel entry and the pose make both
+    // observable without touching the mechanism.
+    connect(1);
+    teleport(new Pose2d(3.0, 2.0, Rotation2d.kZero));
+    settleToPublish();
+    var flywheelEntry =
+        NetworkTableInstance.getDefault().getEntry("/SmartDashboard/Flywheel Speed Limit (%)");
+    double flywheelBefore = flywheelEntry.getDouble(-1);
+
+    setPov(1, 0); // up
+    setPov(1, 180); // down — the observable one: at the 100% default, an up-nudge would clamp
+    // back to 100 invisibly, so a wrongly-bound DOWN is what this check can catch.
+    press(1, 8); // Start
+    for (int i = 0; i < 10; i++) stepRobot();
+    assertEquals(
+        flywheelBefore,
+        flywheelEntry.getDouble(-1),
+        EPS,
+        "demo-pad D-pad must not nudge the flywheel limit");
+    assertEquals(3.0, pose().getX(), 0.05, "demo-pad Start must not reset the sim field");
+    assertEquals(2.0, pose().getY(), 0.05, "demo-pad Start must not reset the sim field");
+    release(1, 8);
+    setPov(1, -1);
+
+    // Positive control on the full pad (so the check is known to detect a change): the same
+    // D-pad nudges by the 1% step there. Down first (100 -> 99) because an up-nudge from the
+    // 100% default clamps back to 100 and is invisible. NT reads are eventually consistent even
+    // in-process, so poll briefly for the nudged value.
+    disconnect(1);
+    connect(0);
+    setPov(0, 180);
+    for (int i = 0; i < 5; i++) stepRobot();
+    assertEquals(
+        flywheelBefore - 1.0,
+        pollFlywheelEntry(flywheelBefore - 1.0),
+        EPS,
+        "full-pad D-pad down nudges the flywheel limit");
+    setPov(0, 0);
+    for (int i = 0; i < 5; i++) stepRobot();
+    assertEquals(flywheelBefore, pollFlywheelEntry(flywheelBefore), EPS, "D-pad up nudges it back");
+    setPov(0, -1);
+    DashboardControlsTestUtil.resetDefaults();
+  }
+
+  /**
+   * Polls the flywheel-limit NT entry until it reaches {@code expected} or 2 s pass, then returns
+   * the last read. Robot-side writes reach the in-process NT server asynchronously, so an immediate
+   * read can race the flush.
+   */
+  private static double pollFlywheelEntry(double expected) throws InterruptedException {
+    var entry =
+        NetworkTableInstance.getDefault().getEntry("/SmartDashboard/Flywheel Speed Limit (%)");
+    long deadline = System.currentTimeMillis() + 2000;
+    double value = entry.getDouble(-1);
+    while (Math.abs(value - expected) > EPS && System.currentTimeMillis() < deadline) {
+      Thread.sleep(20);
+      value = entry.getDouble(-1);
+    }
+    return value;
+  }
+
+  @Test
+  void manualIsInterruptedByShootingAndRestartsCleanly() {
+    // A legal same-requirements command (Shooting) interrupts a running Manual. The interrupted
+    // Manual never comes back on its own while X is still held, and a fresh press restarts it.
+    connect(0);
+    press(0, BUTTON_X);
+    assertTrue(stepUntilManualFeeding(40), "Manual reached SHOOT via the X binding");
+    assertEquals(
+        ManualConstants.ShooterRotpsTunable.getAsDouble(),
+        Drum.mInstance.getVelocitySetpointRotPerSec(),
+        EPS,
+        "Manual drum target");
+
+    press(0, BUTTON_RB); // Shooting requires the same subsystems: interrupts Manual
+    assertTrue(stepUntilFeeding(10), "Shooting took over and feeds");
+    assertEquals(
+        DrumConstants.MaxShotVelocity,
+        Drum.mInstance.getVelocitySetpointRotPerSec(),
+        EPS,
+        "drum now at the Shooting target");
+
+    release(0, BUTTON_RB); // X is STILL held: the interrupted Manual must not come back
+    settle();
+    assertEquals(
+        DrumConstants.StowVelocity,
+        Drum.mInstance.getVelocitySetpointRotPerSec(),
+        EPS,
+        "Shooting end() stowed the drum; interrupted Manual did not resume");
+    assertEquals(0.0, feederSetpoint(), EPS);
+
+    release(0, BUTTON_X);
+    press(0, BUTTON_X);
+    assertTrue(stepUntilManualFeeding(40), "a fresh X press restarts Manual after interruption");
+    release(0, BUTTON_X);
+  }
+
+  @Test
+  void takeoverInterruptsPortZeroIntake() {
+    connect(0);
+    setTrigger(0, 0.9);
+    boolean intakeRunning = false;
+    for (int i = 0; i < 10 && !intakeRunning; i++) {
+      stepRobot();
+      intakeRunning = IntakeRoller.mInstance.getVelocitySetpointRotPerSec() != 0.0;
+    }
+    assertTrue(intakeRunning, "port 0 intake running");
+
+    connect(1); // takeover: port 0's held intake must be interrupted by priority loss
+    settle();
+    assertEquals(
+        0.0,
+        IntakeRoller.mInstance.getVelocitySetpointRotPerSec(),
+        EPS,
+        "takeover stopped port 0's intake");
+    setTrigger(0, 0.0);
+
+    setTrigger(1, 0.9); // the new owner can intake
+    intakeRunning = false;
+    for (int i = 0; i < 10 && !intakeRunning; i++) {
+      stepRobot();
+      intakeRunning = IntakeRoller.mInstance.getVelocitySetpointRotPerSec() != 0.0;
+    }
+    assertTrue(intakeRunning, "port 1 intake runs after the takeover");
+    setTrigger(1, 0.0);
+  }
+
+  @Test
+  void layoutContractTopicsExistWithMatchingTypes() throws Exception {
+    // The Elastic layout is an external contract: every non-LED widget topic the layout consumes
+    // must exist on NetworkTables with the type the widget expects, once the container has run and
+    // the 10 Hz publish block fired. /AdvantageKit/* topics need the running AdvantageKit logger
+    // (not started in-JVM) and are verified against the standalone simulateJava run in the
+    // acceptance report; LED topics are out of this round's scope. The Shift keys' trailing
+    // spaces are part of the contract and are pinned here on both sides.
+    settleToPublish();
+    ShiftUtil.publishShiftInfo();
+    SmartDashboard.updateValues();
+
+    JsonNode root = new ObjectMapper().readTree(Files.readString(latestLayout()));
+    int checked = 0;
+    List<String> missing = new ArrayList<>();
+    List<String> wrongType = new ArrayList<>();
+    for (JsonNode tab : root.get("tabs")) {
+      JsonNode containers = tab.get("grid_layout").get("containers");
+      if (containers == null) {
+        continue;
+      }
+      for (JsonNode widget : containers) {
+        String topic = widget.path("properties").path("topic").asText("");
+        String type = widget.path("type").asText("");
+        if (topic.isEmpty() || topic.startsWith("/AdvantageKit/") || topic.contains("LED")) {
+          continue;
+        }
+        checked++;
+        NetworkTableInstance nt = NetworkTableInstance.getDefault();
+        if (type.equals("Field")) {
+          // A Field2d is a sendable SUBTABLE: the table path itself is not a topic — the .type
+          // entry inside it is.
+          String sendableType = nt.getEntry(topic + "/.type").getString("");
+          if (!sendableType.equals("Field2d")) {
+            wrongType.add(type + " " + topic + " (.type=" + sendableType + ")");
+          }
+          continue;
+        }
+        if (!nt.getTopic(topic).exists()) {
+          missing.add(type + " " + topic);
+          continue;
+        }
+        switch (type) {
+          case "Number Slider", "Match Time" -> {
+            // Topic.getType() reads kUnassigned in-JVM; the entry's value type is authoritative.
+            if (nt.getEntry(topic).getType() != NetworkTableType.kDouble) {
+              wrongType.add(type + " " + topic);
+            }
+          }
+          case "Boolean Box" -> {
+            if (nt.getEntry(topic).getType() != NetworkTableType.kBoolean) {
+              wrongType.add(type + " " + topic);
+            }
+          }
+          default -> {
+            // Text displays accept any primitive type; existence was checked above.
+          }
+        }
+      }
+    }
+    assertTrue(checked >= 10, "sanity: the layout scan actually found topics (" + checked + ")");
+    assertTrue(missing.isEmpty(), "missing topics: " + missing);
+    assertTrue(wrongType.isEmpty(), "type mismatches: " + wrongType);
+  }
+
+  /** Newest elastic-layout-MMDD.json in the project root (the naming rule: MMDD, latest wins). */
+  private static Path latestLayout() throws Exception {
+    try (var files = Files.list(Path.of("."))) {
+      return files
+          .filter(p -> p.getFileName().toString().matches("elastic-layout-\\d{4}\\.json"))
+          .max(Comparator.comparing(p -> p.getFileName().toString()))
+          .orElseThrow(
+              () -> new IllegalStateException("no elastic-layout-MMDD.json in project root"));
+    }
   }
 }
