@@ -202,3 +202,24 @@ external pixels within the expected 3-tick full refresh (8 onboard + 60
 external runs). The measured strip length and pixel density still require
 on-strip verification; this revert is a configuration change, not a hardware
 acceptance.
+
+## Revision 7 (2026-10-24, reconfirm 10.0 m configured length)
+
+The user reconfirmed a total configured strip length of 10.0 m, superseding the
+3.0 m restoration in Revision 6 while preserving Revision 4 and Revision 6 as
+history. `LENGTH_METERS` is 10.0 again; the 20 px/m density and the derived
+`LENGTH_PIXELS` formula are unchanged, so the driver addresses 200 external
+pixels. This remains below the CANdle's 392-external-pixel capacity. The frame
+budget, section map, PWM fallback and all other parameters are unchanged.
+
+The regression `configuredTenMeterStripPaintsAllTwoHundredPixels` again covers
+the real 10 m addressing behavior: 200 valid, distinct RGB colors must reach
+external device indices 8–207, every tick must stay within 24 frames, and the
+actual send-count bound is ceil((8 + 200) / 24) = 9 eligible sends. The 450 ms
+figure is only the theoretical throttling time at the configured 50 ms
+interval, not a worst-case scheduling bound; with 20 ms scheduling, nine
+eligible sends typically take about 540 ms. The RED run on the previous 3.0 m
+configuration was observed failing as expected at external pixel 60
+(device index 68). Physical density, full-strip illumination, color order,
+power delivery and smoothness remain unverified on the real LEDs; the
+fake-transport regression is not hardware acceptance.

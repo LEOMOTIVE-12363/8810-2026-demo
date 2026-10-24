@@ -145,6 +145,9 @@ public class RobotContainer {
             () -> -controls.leftY() * 0.9,
             () -> -controls.leftX() * 0.9,
             () -> -controls.rightX()));
+    hood.setDefaultCommand(
+        Commands.run(
+            () -> hood.setPositionRot(DashboardControls.getHoodTargetDeg() / 360.0), hood));
 
     controls.onPress(
         Action.RETRACT,

@@ -397,7 +397,7 @@ class LEDIOCandleTest {
   }
 
   @Test
-  void configuredThreeMeterStripPaintsAllSixtyPixels() {
+  void configuredTenMeterStripPaintsAllTwoHundredPixels() {
     FakeTransport transport = new FakeTransport();
     Clock clock = new Clock();
     LEDIOCandle io =
@@ -406,22 +406,35 @@ class LEDIOCandleTest {
             clock,
             LEDConstants.LENGTH_PIXELS,
             LEDConstants.CANDLE_MAX_FRAMES_PER_UPDATE);
-    AddressableLEDBuffer frame = gradientBuffer(LEDConstants.LENGTH_PIXELS);
+    AddressableLEDBuffer frame = new AddressableLEDBuffer(200);
+    AddressableLEDBuffer thumbnail = thumbnailBuffer();
+    for (int i = 0; i < 200; i++) {
+      // Every channel is in 0-255, and red = i makes all 200 colors distinct.
+      frame.setRGB(i, i, 255 - i, (i * 73 + 19) % 256);
+    }
 
-    // 8 onboard + 60 external pixels = 68 distinct runs; at 24 frames per tick a full refresh
-    // converges in ceil(68 / 24) = 3 ticks.
-    for (int tick = 0; tick < 3; tick++) {
+    // 8 onboard + 200 external pixels = 208 distinct runs. The hand-derived worst-case bound is
+    // ceil(208 / 24) = 9 ticks, with no tick allowed to exceed 24 frames.
+    for (int tick = 0; tick < 9; tick++) {
       clock.now += STEP_SEC;
       int before = transport.paints.size();
+      io.writeOnboardBuffer(thumbnail);
       io.writeBuffer(frame);
       assertTrue(
-          transport.paints.size() - before <= LEDConstants.CANDLE_MAX_FRAMES_PER_UPDATE,
-          "every refresh tick must stay within the frame budget");
+          transport.paints.size() - before <= 24,
+          "refresh tick " + (tick + 1) + " must stay within the 24-frame budget");
     }
 
-    for (int i = 0; i < LEDConstants.LENGTH_PIXELS; i++) {
-      assertEquals(packed(frame, i), transport.displayed[i + 8], "3 m strip external pixel " + i);
+    for (int i = 0; i < 200; i++) {
+      int expected = (i << 16) | ((255 - i) << 8) | ((i * 73 + 19) % 256);
+      assertEquals(
+          expected,
+          transport.displayed[i + 8],
+          "10 m strip external pixel " + i + " (device index " + (i + 8) + ")");
     }
+    assertEquals(10.0, LEDConstants.LENGTH_METERS);
+    assertEquals(20.0, LEDConstants.PIXELS_PER_METER);
+    assertEquals(200, LEDConstants.LENGTH_PIXELS);
   }
 
   // ---- Round-1 acceptance ports (Codex independent acceptance, 2026-10-24 morning) ------------
